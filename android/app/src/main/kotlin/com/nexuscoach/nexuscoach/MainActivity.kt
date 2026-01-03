@@ -11,6 +11,7 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
     private val minimapChannel = "nexuscoach/minimap"
+    private val wardChannel = "nexuscoach/ward"
     private val overlayChannel = "nexuscoach/overlay"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -28,6 +29,24 @@ class MainActivity : FlutterActivity() {
                     }
                     "stop" -> {
                         stopMinimapService()
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, wardChannel)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "start" -> {
+                        val intervalSeconds = call.argument<Int>("intervalSeconds") ?: 90
+                        val message = call.argument<String>("message") ?: "Coloque uma ward"
+                        val locale = call.argument<String>("locale") ?: "pt-BR"
+                        startWardService(intervalSeconds, message, locale)
+                        result.success(null)
+                    }
+                    "stop" -> {
+                        stopWardService()
                         result.success(null)
                     }
                     else -> result.notImplemented()
@@ -96,6 +115,23 @@ class MainActivity : FlutterActivity() {
     private fun stopMinimapService() {
         val intent = Intent(this, MinimapReminderService::class.java).apply {
             action = MinimapReminderService.ACTION_STOP
+        }
+        startService(intent)
+    }
+
+    private fun startWardService(intervalSeconds: Int, message: String, locale: String) {
+        val intent = Intent(this, WardReminderService::class.java).apply {
+            action = WardReminderService.ACTION_START
+            putExtra(WardReminderService.EXTRA_INTERVAL_MS, intervalSeconds.toLong() * 1000)
+            putExtra(WardReminderService.EXTRA_MESSAGE, message)
+            putExtra(WardReminderService.EXTRA_LOCALE, locale)
+        }
+        ContextCompat.startForegroundService(this, intent)
+    }
+
+    private fun stopWardService() {
+        val intent = Intent(this, WardReminderService::class.java).apply {
+            action = WardReminderService.ACTION_STOP
         }
         startService(intent)
     }

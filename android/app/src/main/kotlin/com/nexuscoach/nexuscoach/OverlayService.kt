@@ -18,6 +18,7 @@ import android.provider.Settings
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.view.animation.OvershootInterpolator
 import android.widget.FrameLayout
@@ -51,6 +52,8 @@ class OverlayService : Service() {
     private var removeSizePx = 0
     private var removeOffsetPx = 0
     private var removeMagnetDistance = 0
+    private var removeTargetX = 0
+    private var removeTargetY = 0
     private var removeHighlighted = false
     private var menuVisible = false
     private var snapAnimator: ValueAnimator? = null
@@ -84,7 +87,7 @@ class OverlayService : Service() {
         overlaySizePx = bubbleSizePx + 2 * (menuButtonPx + menuGapPx)
         removeSizePx = dpToPx(72)
         removeOffsetPx = dpToPx(96)
-        removeMagnetDistance = removeSizePx / 2 + dpToPx(32)
+        removeMagnetDistance = removeSizePx / 2 + dpToPx(40)
 
         val overlay = FrameLayout(this)
         val menu = buildMenu()
@@ -194,7 +197,6 @@ class OverlayService : Service() {
             )
         )
 
-        bubble.setOnClickListener { toggleMenu() }
         return bubble
     }
 
@@ -331,9 +333,14 @@ class OverlayService : Service() {
     }
 
     private fun openApp() {
-        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
-        launchIntent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        if (launchIntent != null) startActivity(launchIntent)
+        hideMenu()
+        // Cria intent diretamente para a MainActivity (singleTask garante reutilização)
+        val intent = Intent(this, MainActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+        }
+        startActivity(intent)
+        // Para o overlay ao abrir o app - ele será reiniciado quando o app voltar ao background
+        stopSelf()
     }
 
     private fun attachDragHandler(
@@ -348,11 +355,16 @@ class OverlayService : Service() {
         var lastTouchX = 0f
         var lastTouchY = 0f
         var lastTouchNearRemove = false
+        var menuWasVisibleOnDown = false
+        var isDragging = false
+        val touchSlop = ViewConfiguration.get(bubble.context).scaledTouchSlop
 
         bubble.setOnTouchListener { _, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    hideMenu()
+                    // Guarda o estado do menu ANTES de qualquer modificação
+                    menuWasVisibleOnDown = menuVisible
+                    isDragging = false
                     snapAnimator?.cancel()
                     bubble.animate().scaleX(0.92f).scaleY(0.92f).setDuration(80).start()
                     showRemoveView()
@@ -368,6 +380,14 @@ class OverlayService : Service() {
                 MotionEvent.ACTION_MOVE -> {
                     val dx = (event.rawX - initialTouchX).toInt()
                     val dy = (event.rawY - initialTouchY).toInt()
+
+                    // Detecta início de arrasto
+                    if (!isDragging && (abs(dx) > touchSlop || abs(dy) > touchSlop)) {
+                        isDragging = true
+                        // Esconde o menu ao começar a arrastar
+                        hideMenu()
+                    }
+
                     params.x = initialX + dx
                     params.y = initialY + dy
                     clampToScreen(params)
@@ -391,10 +411,20 @@ class OverlayService : Service() {
                         stopSelf()
                         return@setOnTouchListener true
                     }
-                    val isClick = abs(lastTouchX - initialTouchX) < 10 && abs(lastTouchY - initialTouchY) < 10
+
+                    val dx = abs(lastTouchX - initialTouchX)
+                    val dy = abs(lastTouchY - initialTouchY)
+                    val isClick = dx < touchSlop && dy < touchSlop
+
                     if (isClick) {
-                        bubble.performClick()
+                        // Foi um clique: toggle baseado no estado que o menu tinha quando o toque começou
+                        if (menuWasVisibleOnDown) {
+                            hideMenu()
+                        } else {
+                            showMenu()
+                        }
                     } else {
+                        // Foi arrasto: snap para a borda (menu já foi escondido no ACTION_MOVE)
                         snapToEdge(params)
                     }
                     true
@@ -404,6 +434,7 @@ class OverlayService : Service() {
                     hideRemoveView()
                     updateRemoveHighlight(false)
                     lastTouchNearRemove = false
+                    isDragging = false
                     true
                 }
                 else -> false
@@ -473,6 +504,10 @@ class OverlayService : Service() {
         params.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
         params.y = removeOffsetPx
 
+        val metrics = Resources.getSystem().displayMetrics
+        removeTargetX = metrics.widthPixels / 2
+        removeTargetY = metrics.heightPixels - removeOffsetPx - removeSizePx / 2
+
         removeView = target
         removeParams = params
     }
@@ -528,30 +563,23 @@ class OverlayService : Service() {
     }
 
     private fun isInRemoveZone(params: WindowManager.LayoutParams): Boolean {
-        val metrics = Resources.getSystem().displayMetrics
         val centerX = params.x + overlaySizePx / 2
         val centerY = params.y + overlaySizePx / 2
-        val targetX = metrics.widthPixels / 2
-        val targetY = metrics.heightPixels - removeOffsetPx - removeSizePx / 2
-        val dx = centerX - targetX
-        val dy = centerY - targetY
+        val dx = centerX - removeTargetX
+        val dy = centerY - removeTargetY
         val radius = removeSizePx / 2
         return dx * dx + dy * dy <= radius * radius
     }
 
     private fun isTouchNearRemoveZone(centerX: Int, centerY: Int): Boolean {
-        val metrics = Resources.getSystem().displayMetrics
-        val targetX = metrics.widthPixels / 2
-        val targetY = metrics.heightPixels - removeOffsetPx - removeSizePx / 2
-        val dx = centerX - targetX
-        val dy = centerY - targetY
+        val dx = centerX - removeTargetX
+        val dy = centerY - removeTargetY
         return dx * dx + dy * dy <= removeMagnetDistance * removeMagnetDistance
     }
 
     private fun applyMagnet(params: WindowManager.LayoutParams) {
-        val metrics = Resources.getSystem().displayMetrics
-        val targetX = metrics.widthPixels / 2 - overlaySizePx / 2
-        val targetY = metrics.heightPixels - removeOffsetPx - overlaySizePx / 2
+        val targetX = removeTargetX - overlaySizePx / 2
+        val targetY = removeTargetY - overlaySizePx / 2
         params.x += ((targetX - params.x) * 0.3f).toInt()
         params.y += ((targetY - params.y) * 0.3f).toInt()
     }

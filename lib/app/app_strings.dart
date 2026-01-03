@@ -64,6 +64,10 @@ class AppStrings {
     required this.minimapReminderSubtitle,
     required this.minimapIntervalTitle,
     required this.minimapReminderMessage,
+    required this.wardReminderTitle,
+    required this.wardReminderSubtitle,
+    required this.wardIntervalTitle,
+    required this.wardReminderMessage,
     required this.laneTop,
     required this.laneMid,
     required this.laneBot,
@@ -140,6 +144,10 @@ class AppStrings {
   final String minimapReminderSubtitle;
   final String minimapIntervalTitle;
   final String minimapReminderMessage;
+  final String wardReminderTitle;
+  final String wardReminderSubtitle;
+  final String wardIntervalTitle;
+  final String wardReminderMessage;
   final String laneTop;
   final String laneMid;
   final String laneBot;
@@ -240,6 +248,10 @@ class AppStrings {
     minimapReminderSubtitle: 'Avisar periodicamente para olhar o mapa',
     minimapIntervalTitle: 'Intervalo do lembrete',
     minimapReminderMessage: 'Olhe o minimapa',
+    wardReminderTitle: 'Lembrete de ward',
+    wardReminderSubtitle: 'Avisar quando a ward estiver pronta',
+    wardIntervalTitle: 'Cooldown da ward',
+    wardReminderMessage: 'Coloque uma ward',
     laneTop: 'Topo',
     laneMid: 'Meio',
     laneBot: 'Bot',
@@ -324,6 +336,10 @@ class AppStrings {
     minimapReminderSubtitle: 'Periodic reminder to check the map',
     minimapIntervalTitle: 'Reminder interval',
     minimapReminderMessage: 'Check the minimap',
+    wardReminderTitle: 'Ward reminder',
+    wardReminderSubtitle: 'Remind when ward is ready',
+    wardIntervalTitle: 'Ward cooldown',
+    wardReminderMessage: 'Place a ward',
     laneTop: 'Top',
     laneMid: 'Mid',
     laneBot: 'Bot',

@@ -10,6 +10,7 @@ import '../../models/session_models.dart';
 import '../../services/minimap_reminder_controller.dart';
 import '../../services/nexus_api.dart';
 import '../../services/overlay_controller.dart';
+import '../../services/ward_reminder_controller.dart';
 import '../settings/language_voice_screen.dart';
 import '../settings/privacy_screen.dart';
 import 'widgets/end_button.dart';
@@ -53,6 +54,8 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
   String _voice = 'Feminina';
   bool _minimapReminder = false;
   double _minimapInterval = 45;
+  bool _wardReminder = false;
+  double _wardInterval = 90;
   bool _overlayAutoStart = true;
   bool _overlayPermissionGranted = false;
   bool _overlayActive = false;
@@ -66,6 +69,8 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
   static const _keyVoice = 'voice';
   static const _keyMinimapReminder = 'minimap_reminder';
   static const _keyMinimapInterval = 'minimap_interval';
+  static const _keyWardReminder = 'ward_reminder';
+  static const _keyWardInterval = 'ward_interval';
   static const _keyOverlayAutoStart = 'overlay_auto_start';
 
   @override
@@ -87,8 +92,9 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _updateOverlayPermission();
-      _maybeStartOverlayService();
+      _handleAppResumed();
+    } else if (state == AppLifecycleState.paused) {
+      _handleAppPaused();
     }
   }
 
@@ -105,10 +111,13 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
       _voice = prefs.getString(_keyVoice) ?? _voice;
       _minimapReminder = prefs.getBool(_keyMinimapReminder) ?? _minimapReminder;
       _minimapInterval = prefs.getDouble(_keyMinimapInterval) ?? _minimapInterval;
+      _wardReminder = prefs.getBool(_keyWardReminder) ?? _wardReminder;
+      _wardInterval = prefs.getDouble(_keyWardInterval) ?? _wardInterval;
       _overlayAutoStart =
           prefs.getBool(_keyOverlayAutoStart) ?? _overlayAutoStart;
     });
     await _syncMinimapReminder();
+    await _syncWardReminder();
     await _updateOverlayPermission();
   }
 
@@ -261,6 +270,7 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
                             await _stopVoiceInput();
                           }
                           await _syncMinimapReminder();
+                          await _syncWardReminder();
                         },
                         title: Text(strings.pauseCoachTitle),
                         subtitle: Text(
@@ -324,6 +334,39 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
                       ],
                       const SizedBox(height: 8),
                       SwitchListTile(
+                        value: _wardReminder,
+                        onChanged: (value) async {
+                          setSheetState(() => _wardReminder = value);
+                          setState(() => _wardReminder = value);
+                          _saveBool(_keyWardReminder, value);
+                          await _syncWardReminder();
+                        },
+                        title: Text(strings.wardReminderTitle),
+                        subtitle: Text(
+                          strings.wardReminderSubtitle,
+                          style: const TextStyle(color: AppColors.textMuted),
+                        ),
+                        activeColor: AppColors.accent,
+                      ),
+                      if (_wardReminder) ...[
+                        const SizedBox(height: 8),
+                        SliderTile(
+                          title: strings.wardIntervalTitle,
+                          value: _wardInterval,
+                          min: 60,
+                          max: 150,
+                          divisions: 9,
+                          label: '${_wardInterval.round()}s',
+                          onChanged: (value) async {
+                            setSheetState(() => _wardInterval = value);
+                            setState(() => _wardInterval = value);
+                            _saveDouble(_keyWardInterval, value);
+                            await _syncWardReminder();
+                          },
+                        ),
+                      ],
+                      const SizedBox(height: 8),
+                      SwitchListTile(
                         value: _overlayAutoStart,
                         onChanged: (value) async {
                           setSheetState(() => _overlayAutoStart = value);
@@ -381,6 +424,7 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
                             _saveString(_keyLanguage, result.language);
                             _saveString(_keyVoice, result.voice);
                             await _syncMinimapReminder();
+                            await _syncWardReminder();
                           }
                         },
                       ),
@@ -565,7 +609,8 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
           );
       });
       await _syncMinimapReminder();
-      await _maybeStartOverlayService();
+      await _syncWardReminder();
+      await _maybeStartOverlayService(minimizeApp: true);
     } on ApiException catch (error) {
       _showError(error.message);
     } catch (_) {
@@ -581,12 +626,18 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
     final strings = _strings;
     final sessionId = _sessionId;
     if (sessionId == null) return;
-    final endedChampion = _sessionChampion;
-    final endedLane = _sessionLane;
+
+    // Primeiro coleta o feedback do usuário
+    final feedbackRating = await _promptFeedback();
+
     setState(() => _busy = true);
     await _stopVoiceInput();
     try {
-      await _api.endSession(sessionId);
+      // Envia endSession COM o feedback (se fornecido)
+      await _api.endSession(
+        sessionId,
+        feedbackRating: feedbackRating,
+      );
       if (!mounted) return;
       setState(() {
         _sessionId = null;
@@ -596,12 +647,17 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
         _history.add(HistoryEntry(strings.systemLabel, strings.sessionEnded));
       });
       await _syncMinimapReminder();
+      await _syncWardReminder();
       await _stopOverlayService();
-      await _promptFeedback(
-        sessionId,
-        champion: endedChampion,
-        lane: endedLane,
-      );
+
+      if (feedbackRating != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(strings.feedbackThanks),
+            backgroundColor: AppColors.surface,
+          ),
+        );
+      }
     } on ApiException catch (error) {
       _showError(error.message);
     } catch (_) {
@@ -735,10 +791,34 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _syncWardReminder() async {
+    final shouldRun = _wardReminder && _sessionActive && !_coachPaused;
+    if (shouldRun) {
+      await WardReminderController.start(
+        intervalSeconds: _wardInterval.round(),
+        message: _strings.wardReminderMessage,
+        locale: _language,
+      );
+    } else {
+      await WardReminderController.stop();
+    }
+  }
+
   Future<void> _updateOverlayPermission() async {
     final granted = await OverlayController.canDrawOverlays();
     if (!mounted) return;
     setState(() => _overlayPermissionGranted = granted);
+  }
+
+  void _handleAppResumed() {
+    // Sempre para o overlay quando o app volta ao foreground
+    // (pode já ter sido parado pelo botão de engrenagem no overlay)
+    _stopOverlayService();
+    _updateOverlayPermission();
+  }
+
+  void _handleAppPaused() {
+    _maybeStartOverlayService();
   }
 
   Future<bool> _ensureOverlayPermission() async {
@@ -820,23 +900,20 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
     await _startOverlayService();
   }
 
-  Future<void> _maybeStartOverlayService() async {
+  Future<void> _maybeStartOverlayService({bool minimizeApp = false}) async {
     debugPrint(
-        'maybeStartOverlayService auto=$_overlayAutoStart session=$_sessionActive overlayActive=$_overlayActive');
+        'maybeStartOverlayService auto=$_overlayAutoStart session=$_sessionActive overlayActive=$_overlayActive minimize=$minimizeApp');
     if (!_overlayAutoStart || !_sessionActive || _overlayActive) {
       return;
     }
     final allowed = await _ensureOverlayPermission();
     if (!allowed) return;
-    await _startOverlayService(minimizeApp: true);
+    await _startOverlayService(minimizeApp: minimizeApp);
   }
 
-  Future<void> _promptFeedback(
-    String sessionId, {
-    String? champion,
-    String? lane,
-  }) async {
-    if (!mounted) return;
+  /// Mostra modal de feedback e retorna o rating selecionado (ou null se cancelado)
+  Future<String?> _promptFeedback() async {
+    if (!mounted) return null;
     final strings = _strings;
     final choice = await showModalBottomSheet<_FeedbackRating>(
       context: context,
@@ -897,27 +974,8 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
         );
       },
     );
-    if (choice == null) return;
-    final rating = choice == _FeedbackRating.good ? 'good' : 'bad';
-    final payload = <String, String>{};
-    if (champion != null) payload['champion'] = champion;
-    if (lane != null) payload['lane'] = lane;
-    try {
-      await _api.submitFeedback(
-        sessionId: sessionId,
-        rating: rating,
-        context: payload.isEmpty ? null : payload,
-      );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(strings.feedbackThanks),
-          backgroundColor: AppColors.surface,
-        ),
-      );
-    } catch (_) {
-      // ignore feedback errors
-    }
+    if (choice == null) return null;
+    return choice == _FeedbackRating.good ? 'good' : 'bad';
   }
 
   void _showError(String message) {

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -50,23 +51,52 @@ class NexusApi {
     );
   }
 
-  Future<void> endSession(String sessionId) async {
-    await _postJson('/session/end', {
-      'session_id': sessionId,
-    });
+  /// Envia áudio para transcrição e processamento pelo coach
+  Future<TurnResult> sendAudioTurn({
+    required String sessionId,
+    required Uint8List audioBytes,
+    required String filename,
+    String? locale,
+  }) async {
+    final uri = Uri.parse('$baseUrl/turn/audio');
+    final request = http.MultipartRequest('POST', uri)
+      ..fields['session_id'] = sessionId;
+
+    if (locale != null) {
+      request.fields['locale'] = locale;
+    }
+
+    request.files.add(http.MultipartFile.fromBytes(
+      'audio',
+      audioBytes,
+      filename: filename,
+    ));
+
+    final streamedResponse = await _client.send(request);
+    final response = await http.Response.fromStream(streamedResponse);
+    final payload = _parseEnvelope(response);
+
+    return TurnResult(
+      replyText: payload['reply_text'] as String,
+      updatedState: (payload['updated_state'] as Map<String, dynamic>?) ?? {},
+    );
   }
 
-  Future<void> submitFeedback({
-    required String sessionId,
-    required String rating,
-    Map<String, dynamic>? context,
+  /// Encerra a sessão, opcionalmente com feedback
+  Future<void> endSession(
+    String sessionId, {
+    String? feedbackRating,
+    String? feedbackComment,
   }) async {
-    final payload = {
+    await _postJson('/session/end', {
       'session_id': sessionId,
-      'rating': rating,
-      if (context != null && context.isNotEmpty) 'context': context,
-    };
-    await _postJson('/session/feedback', payload);
+      if (feedbackRating != null)
+        'feedback': {
+          'rating': feedbackRating,
+          if (feedbackComment != null && feedbackComment.isNotEmpty)
+            'comment': feedbackComment,
+        },
+    });
   }
 
   Future<Map<String, dynamic>> _postJson(
