@@ -56,6 +56,19 @@ class NexusApi {
     });
   }
 
+  Future<void> submitFeedback({
+    required String sessionId,
+    required String rating,
+    Map<String, dynamic>? context,
+  }) async {
+    final payload = {
+      'session_id': sessionId,
+      'rating': rating,
+      if (context != null && context.isNotEmpty) 'context': context,
+    };
+    await _postJson('/session/feedback', payload);
+  }
+
   Future<Map<String, dynamic>> _postJson(
     String path,
     Map<String, dynamic> body,

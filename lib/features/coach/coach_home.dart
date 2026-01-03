@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+ import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:speech_to_text/speech_to_text.dart';
@@ -8,6 +9,7 @@ import '../../app/app_strings.dart';
 import '../../models/session_models.dart';
 import '../../services/minimap_reminder_controller.dart';
 import '../../services/nexus_api.dart';
+import '../../services/overlay_controller.dart';
 import '../settings/language_voice_screen.dart';
 import '../settings/privacy_screen.dart';
 import 'widgets/end_button.dart';
@@ -29,7 +31,9 @@ class CoachHome extends StatefulWidget {
   State<CoachHome> createState() => _CoachHomeState();
 }
 
-class _CoachHomeState extends State<CoachHome> {
+enum _FeedbackRating { good, bad }
+
+class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
   final NexusApi _api = NexusApi(_apiBaseUrl);
   final String _deviceId = DateTime.now().millisecondsSinceEpoch.toString();
   final List<HistoryEntry> _history = [];
@@ -49,6 +53,11 @@ class _CoachHomeState extends State<CoachHome> {
   String _voice = 'Feminina';
   bool _minimapReminder = false;
   double _minimapInterval = 45;
+  bool _overlayAutoStart = true;
+  bool _overlayPermissionGranted = false;
+  bool _overlayActive = false;
+  String? _sessionChampion;
+  String? _sessionLane;
 
   static const _keyCoachPaused = 'coach_paused';
   static const _keyMicSensitivity = 'mic_sensitivity';
@@ -57,18 +66,30 @@ class _CoachHomeState extends State<CoachHome> {
   static const _keyVoice = 'voice';
   static const _keyMinimapReminder = 'minimap_reminder';
   static const _keyMinimapInterval = 'minimap_interval';
+  static const _keyOverlayAutoStart = 'overlay_auto_start';
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadSettings();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _textController.dispose();
     _speech.stop();
+    OverlayController.stop();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _updateOverlayPermission();
+      _maybeStartOverlayService();
+    }
   }
 
   Future<void> _loadSettings() async {
@@ -84,8 +105,11 @@ class _CoachHomeState extends State<CoachHome> {
       _voice = prefs.getString(_keyVoice) ?? _voice;
       _minimapReminder = prefs.getBool(_keyMinimapReminder) ?? _minimapReminder;
       _minimapInterval = prefs.getDouble(_keyMinimapInterval) ?? _minimapInterval;
+      _overlayAutoStart =
+          prefs.getBool(_keyOverlayAutoStart) ?? _overlayAutoStart;
     });
     await _syncMinimapReminder();
+    await _updateOverlayPermission();
   }
 
   AppStrings get _strings => AppStrings.of(_language);
@@ -147,6 +171,7 @@ class _CoachHomeState extends State<CoachHome> {
                   alignment: Alignment.center,
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       PrimaryAction(
                         label: _sessionActive
@@ -157,15 +182,16 @@ class _CoachHomeState extends State<CoachHome> {
                             ? null
                             : () => _openStartSheet(context, strings),
                       ),
-                      const SizedBox(height: 32),
-                      HistoryCard(history: _history, strings: strings),
+                      const SizedBox(height: 20),
                       if (_sessionActive) ...[
-                        const SizedBox(height: 12),
                         QuickInput(
                           controller: _textController,
-                          enabled: !_sending && !_busy && !_coachPaused,
-                          micEnabled:
-                              _sessionActive && !_sending && !_busy && !_coachPaused,
+                          enabled:
+                              !_sending && !_busy && !_coachPaused,
+                          micEnabled: _sessionActive &&
+                              !_sending &&
+                              !_busy &&
+                              !_coachPaused,
                           micActive: _voiceListening,
                           micTooltip: _voiceListening
                               ? strings.micStopTooltip
@@ -175,8 +201,10 @@ class _CoachHomeState extends State<CoachHome> {
                           onSend: _sendTextTurn,
                           onMicTap: _toggleVoiceInput,
                         ),
+                        const SizedBox(height: 22),
                       ],
-                      const SizedBox(height: 18),
+                      HistoryCard(history: _history, strings: strings),
+                      const SizedBox(height: 26),
                       EndButton(
                         enabled: _sessionActive && !_busy,
                         label: strings.endButton,
@@ -208,139 +236,171 @@ class _CoachHomeState extends State<CoachHome> {
             return SafeArea(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      strings.settingsTitle,
-                      style: GoogleFonts.spaceGrotesk(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textPrimary,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        strings.settingsTitle,
+                        style: GoogleFonts.spaceGrotesk(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textPrimary,
+                        ),
+                        textAlign: TextAlign.center,
                       ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 16),
-                    SwitchListTile(
-                      value: _coachPaused,
-                      onChanged: (value) async {
-                        setSheetState(() => _coachPaused = value);
-                        setState(() => _coachPaused = value);
-                        _saveBool(_keyCoachPaused, value);
-                        if (value) {
-                          await _stopVoiceInput();
-                        }
-                        await _syncMinimapReminder();
-                      },
-                      title: Text(strings.pauseCoachTitle),
-                      subtitle: Text(
-                        strings.pauseCoachSubtitle,
-                        style: const TextStyle(color: AppColors.textMuted),
+                      const SizedBox(height: 16),
+                      SwitchListTile(
+                        value: _coachPaused,
+                        onChanged: (value) async {
+                          setSheetState(() => _coachPaused = value);
+                          setState(() => _coachPaused = value);
+                          _saveBool(_keyCoachPaused, value);
+                          if (value) {
+                            await _stopVoiceInput();
+                          }
+                          await _syncMinimapReminder();
+                        },
+                        title: Text(strings.pauseCoachTitle),
+                        subtitle: Text(
+                          strings.pauseCoachSubtitle,
+                          style: const TextStyle(color: AppColors.textMuted),
+                        ),
+                        activeColor: AppColors.accent,
                       ),
-                      activeColor: AppColors.accent,
-                    ),
-                    const SizedBox(height: 8),
-                    SliderTile(
-                      title: strings.micSensitivityTitle,
-                      value: _micSensitivity,
-                      onChanged: (value) {
-                        setSheetState(() => _micSensitivity = value);
-                        setState(() => _micSensitivity = value);
-                        _saveDouble(_keyMicSensitivity, value);
-                      },
-                    ),
-                    const SizedBox(height: 8),
-                    SliderTile(
-                      title: strings.coachVolumeTitle,
-                      value: _coachVolume,
-                      onChanged: (value) {
-                        setSheetState(() => _coachVolume = value);
-                        setState(() => _coachVolume = value);
-                        _saveDouble(_keyCoachVolume, value);
-                      },
-                    ),
-                    const SizedBox(height: 8),
-                    SwitchListTile(
-                      value: _minimapReminder,
-                      onChanged: (value) async {
-                        setSheetState(() => _minimapReminder = value);
-                        setState(() => _minimapReminder = value);
-                        _saveBool(_keyMinimapReminder, value);
-                        await _syncMinimapReminder();
-                      },
-                      title: Text(strings.minimapReminderTitle),
-                      subtitle: Text(
-                        strings.minimapReminderSubtitle,
-                        style: const TextStyle(color: AppColors.textMuted),
-                      ),
-                      activeColor: AppColors.accent,
-                    ),
-                    if (_minimapReminder) ...[
                       const SizedBox(height: 8),
                       SliderTile(
-                        title: strings.minimapIntervalTitle,
-                        value: _minimapInterval,
-                        min: 20,
-                        max: 90,
-                        divisions: 7,
-                        label: '${_minimapInterval.round()}s',
+                        title: strings.micSensitivityTitle,
+                        value: _micSensitivity,
+                        onChanged: (value) {
+                          setSheetState(() => _micSensitivity = value);
+                          setState(() => _micSensitivity = value);
+                          _saveDouble(_keyMicSensitivity, value);
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      SliderTile(
+                        title: strings.coachVolumeTitle,
+                        value: _coachVolume,
+                        onChanged: (value) {
+                          setSheetState(() => _coachVolume = value);
+                          setState(() => _coachVolume = value);
+                          _saveDouble(_keyCoachVolume, value);
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      SwitchListTile(
+                        value: _minimapReminder,
                         onChanged: (value) async {
-                          setSheetState(() => _minimapInterval = value);
-                          setState(() => _minimapInterval = value);
-                          _saveDouble(_keyMinimapInterval, value);
+                          setSheetState(() => _minimapReminder = value);
+                          setState(() => _minimapReminder = value);
+                          _saveBool(_keyMinimapReminder, value);
                           await _syncMinimapReminder();
+                        },
+                        title: Text(strings.minimapReminderTitle),
+                        subtitle: Text(
+                          strings.minimapReminderSubtitle,
+                          style: const TextStyle(color: AppColors.textMuted),
+                        ),
+                        activeColor: AppColors.accent,
+                      ),
+                      if (_minimapReminder) ...[
+                        const SizedBox(height: 8),
+                        SliderTile(
+                          title: strings.minimapIntervalTitle,
+                          value: _minimapInterval,
+                          min: 20,
+                          max: 90,
+                          divisions: 7,
+                          label: '${_minimapInterval.round()}s',
+                          onChanged: (value) async {
+                            setSheetState(() => _minimapInterval = value);
+                            setState(() => _minimapInterval = value);
+                            _saveDouble(_keyMinimapInterval, value);
+                            await _syncMinimapReminder();
+                          },
+                        ),
+                      ],
+                      const SizedBox(height: 8),
+                      SwitchListTile(
+                        value: _overlayAutoStart,
+                        onChanged: (value) async {
+                          setSheetState(() => _overlayAutoStart = value);
+                          setState(() => _overlayAutoStart = value);
+                          _saveBool(_keyOverlayAutoStart, value);
+                        },
+                        title: Text(strings.overlayAutoStartTitle),
+                        subtitle: Text(
+                          strings.overlayAutoStartSubtitle,
+                          style: const TextStyle(color: AppColors.textMuted),
+                        ),
+                        activeColor: AppColors.accent,
+                      ),
+                      const SizedBox(height: 8),
+                      SwitchListTile(
+                        value: _overlayActive,
+                        onChanged: (_) async {
+                          await _toggleOverlayService();
+                          setState(() {});
+                        },
+                        title: Text(strings.overlayTestTitle),
+                        subtitle: Text(
+                          _overlayPermissionGranted
+                              ? strings.overlayStatusActive
+                              : strings.overlayStatusMissing,
+                          style: const TextStyle(color: AppColors.textMuted),
+                        ),
+                        activeColor: AppColors.accent,
+                      ),
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(strings.languageVoiceTitle),
+                        subtitle: Text(
+                          '$_language - $_voice',
+                          style: const TextStyle(color: AppColors.textMuted),
+                        ),
+                        trailing: const Icon(Icons.chevron_right, size: 20),
+                        onTap: () async {
+                          Navigator.of(context).pop();
+                          final result = await Navigator.of(rootContext)
+                              .push<LanguageVoiceResult>(
+                            MaterialPageRoute(
+                              builder: (_) => LanguageVoiceScreen(
+                                initialLanguage: _language,
+                                initialVoice: _voice,
+                                strings: strings,
+                              ),
+                            ),
+                          );
+                          if (result != null) {
+                            setState(() {
+                              _language = result.language;
+                              _voice = result.voice;
+                            });
+                            _saveString(_keyLanguage, result.language);
+                            _saveString(_keyVoice, result.voice);
+                            await _syncMinimapReminder();
+                          }
+                        },
+                      ),
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(strings.privacyTitle),
+                        trailing: const Icon(Icons.chevron_right, size: 20),
+                        onTap: () {
+                          Navigator.of(context).pop();
+                          Future.microtask(() {
+                            Navigator.of(rootContext).push(
+                              MaterialPageRoute(
+                                builder: (_) => PrivacyScreen(strings: strings),
+                              ),
+                            );
+                          });
                         },
                       ),
                     ],
-                    const SizedBox(height: 8),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(strings.languageVoiceTitle),
-                      subtitle: Text(
-                        '$_language - $_voice',
-                        style: const TextStyle(color: AppColors.textMuted),
-                      ),
-                      trailing: const Icon(Icons.chevron_right, size: 20),
-                      onTap: () async {
-                        Navigator.of(context).pop();
-                        final result = await Navigator.of(rootContext)
-                            .push<LanguageVoiceResult>(
-                          MaterialPageRoute(
-                            builder: (_) => LanguageVoiceScreen(
-                              initialLanguage: _language,
-                              initialVoice: _voice,
-                              strings: strings,
-                            ),
-                          ),
-                        );
-                        if (result != null) {
-                          setState(() {
-                            _language = result.language;
-                            _voice = result.voice;
-                          });
-                          _saveString(_keyLanguage, result.language);
-                          _saveString(_keyVoice, result.voice);
-                          await _syncMinimapReminder();
-                        }
-                      },
-                    ),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(strings.privacyTitle),
-                      trailing: const Icon(Icons.chevron_right, size: 20),
-                      onTap: () {
-                        Navigator.of(context).pop();
-                        Future.microtask(() {
-                          Navigator.of(rootContext).push(
-                            MaterialPageRoute(
-                              builder: (_) => PrivacyScreen(strings: strings),
-                            ),
-                          );
-                        });
-                      },
-                    ),
-                  ],
+                  ),
                 ),
               ),
             );
@@ -421,9 +481,7 @@ class _CoachHomeState extends State<CoachHome> {
                       ),
                     ],
                     onChanged: (value) {
-                      if (value == null) {
-                        return;
-                      }
+                      if (value == null) return;
                       setSheetState(() => lane = value);
                     },
                   ),
@@ -491,12 +549,12 @@ class _CoachHomeState extends State<CoachHome> {
         lane: lane,
         enemy: enemy?.isEmpty == true ? null : enemy,
       );
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
       setState(() {
         _sessionId = result.sessionId;
         _sessionActive = true;
+        _sessionChampion = champion;
+        _sessionLane = lane;
         _history
           ..clear()
           ..add(
@@ -507,6 +565,7 @@ class _CoachHomeState extends State<CoachHome> {
           );
       });
       await _syncMinimapReminder();
+      await _maybeStartOverlayService();
     } on ApiException catch (error) {
       _showError(error.message);
     } catch (_) {
@@ -521,22 +580,28 @@ class _CoachHomeState extends State<CoachHome> {
   Future<void> _endSession() async {
     final strings = _strings;
     final sessionId = _sessionId;
-    if (sessionId == null) {
-      return;
-    }
+    if (sessionId == null) return;
+    final endedChampion = _sessionChampion;
+    final endedLane = _sessionLane;
     setState(() => _busy = true);
     await _stopVoiceInput();
     try {
       await _api.endSession(sessionId);
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
       setState(() {
         _sessionId = null;
         _sessionActive = false;
+        _sessionChampion = null;
+        _sessionLane = null;
         _history.add(HistoryEntry(strings.systemLabel, strings.sessionEnded));
       });
       await _syncMinimapReminder();
+      await _stopOverlayService();
+      await _promptFeedback(
+        sessionId,
+        champion: endedChampion,
+        lane: endedLane,
+      );
     } on ApiException catch (error) {
       _showError(error.message);
     } catch (_) {
@@ -552,9 +617,7 @@ class _CoachHomeState extends State<CoachHome> {
     final strings = _strings;
     final sessionId = _sessionId;
     final text = _textController.text.trim();
-    if (sessionId == null || text.isEmpty) {
-      return;
-    }
+    if (sessionId == null || text.isEmpty) return;
     setState(() {
       _sending = true;
       _history.add(HistoryEntry(strings.youLabel, text));
@@ -564,9 +627,7 @@ class _CoachHomeState extends State<CoachHome> {
 
     try {
       final result = await _api.sendTurn(sessionId: sessionId, text: text);
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
       setState(() {
         _history.add(HistoryEntry(strings.coachLabel, result.replyText));
       });
@@ -598,17 +659,13 @@ class _CoachHomeState extends State<CoachHome> {
 
     final available = await _speech.initialize(
       onStatus: (status) {
-        if (!mounted) {
-          return;
-        }
+        if (!mounted) return;
         if (status == 'notListening' || status == 'done') {
           setState(() => _voiceListening = false);
         }
       },
       onError: (_) {
-        if (!mounted) {
-          return;
-        }
+        if (!mounted) return;
         setState(() => _voiceListening = false);
         _showError(strings.errorMicUnavailable);
       },
@@ -626,13 +683,9 @@ class _CoachHomeState extends State<CoachHome> {
       pauseFor: const Duration(seconds: 2),
       partialResults: true,
       onResult: (result) {
-        if (!mounted) {
-          return;
-        }
+        if (!mounted) return;
         final recognized = result.recognizedWords.trim();
-        if (recognized.isEmpty) {
-          return;
-        }
+        if (recognized.isEmpty) return;
         if (result.finalResult) {
           _textController.text = recognized;
           _sendTextTurn();
@@ -645,9 +698,7 @@ class _CoachHomeState extends State<CoachHome> {
   }
 
   Future<void> _stopVoiceInput() async {
-    if (!_voiceListening) {
-      return;
-    }
+    if (!_voiceListening) return;
     await _speech.stop();
     if (mounted) {
       setState(() => _voiceListening = false);
@@ -684,10 +735,193 @@ class _CoachHomeState extends State<CoachHome> {
     }
   }
 
-  void _showError(String message) {
-    if (!mounted) {
+  Future<void> _updateOverlayPermission() async {
+    final granted = await OverlayController.canDrawOverlays();
+    if (!mounted) return;
+    setState(() => _overlayPermissionGranted = granted);
+  }
+
+  Future<bool> _ensureOverlayPermission() async {
+    final strings = _strings;
+    final allowed = await OverlayController.canDrawOverlays();
+    if (allowed) {
+      if (mounted) {
+        setState(() => _overlayPermissionGranted = true);
+      }
+      return true;
+    }
+
+    final ask = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: Text(strings.overlayPermissionTitle),
+        content: Text(strings.overlayPermissionBody),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(
+              strings.overlayPermissionAction,
+              style: const TextStyle(color: AppColors.accent),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (ask == true) {
+      await OverlayController.requestPermission();
+    }
+    await _updateOverlayPermission();
+    if (!_overlayPermissionGranted) {
+      _showError(strings.overlayPermissionSnack);
+      return false;
+    }
+    return true;
+  }
+
+  Future<bool> _startOverlayService({bool minimizeApp = false}) async {
+    if (_overlayActive) return true;
+    try {
+      final started = await OverlayController.start();
+      if (!started) {
+        _showError(_strings.overlayStartError);
+        return false;
+      }
+      if (mounted) {
+        setState(() => _overlayActive = true);
+      }
+      if (minimizeApp) {
+        SystemNavigator.pop();
+      }
+      return true;
+    } catch (_) {
+      _showError(_strings.overlayStartError);
+      return false;
+    }
+  }
+
+  Future<void> _stopOverlayService() async {
+    if (!_overlayActive) return;
+    try {
+      await OverlayController.stop();
+    } catch (_) {}
+    if (mounted) {
+      setState(() => _overlayActive = false);
+    }
+  }
+
+  Future<void> _toggleOverlayService() async {
+    if (_overlayActive) {
+      await _stopOverlayService();
       return;
     }
+    final allowed = await _ensureOverlayPermission();
+    if (!allowed) return;
+    await _startOverlayService();
+  }
+
+  Future<void> _maybeStartOverlayService() async {
+    debugPrint(
+        'maybeStartOverlayService auto= session= overlayActive=');
+    if (!_overlayAutoStart || !_sessionActive || _overlayActive) {
+      return;
+    }
+    final allowed = await _ensureOverlayPermission();
+    if (!allowed) return;
+    await _startOverlayService(minimizeApp: true);
+  }
+
+  Future<void> _promptFeedback(
+    String sessionId, {
+    String? champion,
+    String? lane,
+  }) async {
+    if (!mounted) return;
+    final strings = _strings;
+    final choice = await showModalBottomSheet<_FeedbackRating>(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (sheetContext) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                strings.feedbackTitle,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                strings.feedbackDescription,
+                style: const TextStyle(color: AppColors.textMuted),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () =>
+                          Navigator.of(sheetContext).pop(_FeedbackRating.good),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.accent,
+                        foregroundColor: AppColors.background,
+                        elevation: 0,
+                      ),
+                      child: Text(strings.feedbackGood),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () =>
+                          Navigator.of(sheetContext).pop(_FeedbackRating.bad),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.textPrimary,
+                        side: const BorderSide(color: AppColors.border),
+                      ),
+                      child: Text(strings.feedbackBad),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (choice == null) return;
+    final rating = choice == _FeedbackRating.good ? 'good' : 'bad';
+    final payload = <String, String>{};
+    if (champion != null) payload['champion'] = champion;
+    if (lane != null) payload['lane'] = lane;
+    try {
+      await _api.submitFeedback(
+        sessionId: sessionId,
+        rating: rating,
+        context: payload.isEmpty ? null : payload,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(strings.feedbackThanks),
+          backgroundColor: AppColors.surface,
+        ),
+      );
+    } catch (_) {
+      // ignore feedback errors
+    }
+  }
+
+  void _showError(String message) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),

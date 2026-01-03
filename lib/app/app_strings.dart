@@ -1,4 +1,4 @@
-﻿class AppStrings {
+class AppStrings {
   AppStrings._({
     required this.locale,
     required this.statusIdle,
@@ -30,6 +30,19 @@
     required this.errorSessionRequired,
     required this.errorCoachPaused,
     required this.errorMicUnavailable,
+    required this.overlayPermissionTitle,
+    required this.overlayPermissionBody,
+    required this.overlayPermissionAction,
+    required this.overlayPermissionSnack,
+    required this.overlayTestTitle,
+    required this.overlayTestSubtitle,
+    required this.overlayTestActionStart,
+    required this.overlayTestActionStop,
+    required this.overlayAutoStartTitle,
+    required this.overlayAutoStartSubtitle,
+    required this.overlayStatusActive,
+    required this.overlayStatusMissing,
+    required this.overlayStartError,
     required this.sendTooltip,
     required this.micStartTooltip,
     required this.micStopTooltip,
@@ -56,6 +69,11 @@
     required this.laneBot,
     required this.laneJungle,
     required this.laneSupport,
+    required this.feedbackTitle,
+    required this.feedbackDescription,
+    required this.feedbackGood,
+    required this.feedbackBad,
+    required this.feedbackThanks,
   });
 
   final String locale;
@@ -88,6 +106,19 @@
   final String errorSessionRequired;
   final String errorCoachPaused;
   final String errorMicUnavailable;
+  final String overlayPermissionTitle;
+  final String overlayPermissionBody;
+  final String overlayPermissionAction;
+  final String overlayPermissionSnack;
+  final String overlayTestTitle;
+  final String overlayTestSubtitle;
+  final String overlayTestActionStart;
+  final String overlayTestActionStop;
+  final String overlayAutoStartTitle;
+  final String overlayAutoStartSubtitle;
+  final String overlayStatusActive;
+  final String overlayStatusMissing;
+  final String overlayStartError;
   final String sendTooltip;
   final String micStartTooltip;
   final String micStopTooltip;
@@ -114,6 +145,11 @@
   final String laneBot;
   final String laneJungle;
   final String laneSupport;
+  final String feedbackTitle;
+  final String feedbackDescription;
+  final String feedbackGood;
+  final String feedbackBad;
+  final String feedbackThanks;
 
   static AppStrings of(String locale) {
     if (locale.startsWith('en')) {
@@ -146,7 +182,7 @@
     quickInputHint: 'Digite para testar',
     settingsTitle: 'Configurações',
     pauseCoachTitle: 'Pausar coach',
-    pauseCoachSubtitle: 'Desativa o microfone e respostas',
+    pauseCoachSubtitle: 'Desativa o microfone e as respostas',
     micSensitivityTitle: 'Sensibilidade do microfone',
     coachVolumeTitle: 'Volume do coach',
     languageVoiceTitle: 'Idioma e voz',
@@ -163,6 +199,22 @@
     errorSessionRequired: 'Inicie uma partida antes de falar.',
     errorCoachPaused: 'Coach pausado. Ative para continuar.',
     errorMicUnavailable: 'Não foi possível ativar o microfone.',
+    overlayPermissionTitle: 'Permitir sobreposição',
+    overlayPermissionBody:
+        'Para exibir o botão flutuante durante a partida, permita sobrepor outros apps.',
+    overlayPermissionAction: 'Abrir permissões',
+    overlayPermissionSnack:
+        'Ative a permissão de sobreposição para usar o botão flutuante.',
+    overlayTestTitle: 'Botão flutuante',
+    overlayTestSubtitle: 'Mostrar ou ocultar a bolha na tela.',
+    overlayTestActionStart: 'Ativar',
+    overlayTestActionStop: 'Desativar',
+    overlayAutoStartTitle: 'Botão flutuante automático',
+    overlayAutoStartSubtitle:
+        'Ativa a bolha do coach enquanto uma partida estiver em andamento.',
+    overlayStatusActive: 'Overlay ativo',
+    overlayStatusMissing: 'Permissão de sobreposição necessária.',
+    overlayStartError: 'Não foi possível abrir o botão flutuante.',
     sendTooltip: 'Enviar',
     micStartTooltip: 'Falar',
     micStopTooltip: 'Parar',
@@ -178,9 +230,7 @@
     voiceMale: 'Masculina',
     privacySummaryTitle: 'Resumo',
     privacySummaryBody:
-        'O NexusCoach não grava áudio bruto. Apenas o texto da sua fala pode '
-        'ser armazenado para melhorar as respostas. Você pode encerrar a sessão '
-        'a qualquer momento.',
+        'O NexusCoach não grava áudio bruto. Apenas o texto da sua fala pode ser armazenado para melhorar as respostas. Você pode encerrar a sessão a qualquer momento.',
     privacyDataTitle: 'Dados coletados',
     privacyDataBody:
         '- Texto transcrito da conversa\n'
@@ -195,7 +245,13 @@
     laneBot: 'Bot',
     laneJungle: 'Selva',
     laneSupport: 'Suporte',
+    feedbackTitle: 'Feedback rápido',
+    feedbackDescription: 'Como foi a ajuda do coach nesta partida?',
+    feedbackGood: 'Foi útil',
+    feedbackBad: 'Não ajudou',
+    feedbackThanks: 'Obrigado! Registramos o feedback.',
   );
+
   static final _en = AppStrings._(
     locale: 'en-US',
     statusIdle: 'Idle',
@@ -227,6 +283,22 @@
     errorSessionRequired: 'Start a match before speaking.',
     errorCoachPaused: 'Coach is paused. Resume to continue.',
     errorMicUnavailable: 'Microphone unavailable.',
+    overlayPermissionTitle: 'Allow overlay',
+    overlayPermissionBody:
+        'To show the floating button during a match, allow drawing over other apps.',
+    overlayPermissionAction: 'Open permissions',
+    overlayPermissionSnack:
+        'Enable overlay permission to use the floating button.',
+    overlayTestTitle: 'Floating button',
+    overlayTestSubtitle: 'Show or hide the bubble on screen.',
+    overlayTestActionStart: 'Enable',
+    overlayTestActionStop: 'Disable',
+    overlayAutoStartTitle: 'Floating button auto-start',
+    overlayAutoStartSubtitle:
+        'Keep the coach bubble running whenever a match is active.',
+    overlayStatusActive: 'Overlay active',
+    overlayStatusMissing: 'Overlay permission required.',
+    overlayStartError: 'Could not open the floating button.',
     sendTooltip: 'Send',
     micStartTooltip: 'Speak',
     micStopTooltip: 'Stop',
@@ -242,8 +314,7 @@
     voiceMale: 'Male',
     privacySummaryTitle: 'Summary',
     privacySummaryBody:
-        'NexusCoach does not store raw audio. Only the transcribed text may be '
-        'stored to improve responses. You can end the session at any time.',
+        'NexusCoach does not store raw audio. Only the transcribed text may be stored to improve responses. You can end the session at any time.',
     privacyDataTitle: 'Data collected',
     privacyDataBody:
         '- Transcribed conversation text\n'
@@ -258,5 +329,10 @@
     laneBot: 'Bot',
     laneJungle: 'Jungle',
     laneSupport: 'Support',
+    feedbackTitle: 'Quick feedback',
+    feedbackDescription: 'How was the coach in this match?',
+    feedbackGood: 'It helped',
+    feedbackBad: 'Not useful',
+    feedbackThanks: 'Thanks! We logged your response.',
   );
 }
