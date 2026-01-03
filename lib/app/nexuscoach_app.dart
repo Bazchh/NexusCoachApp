@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import '../features/coach/coach_home.dart';
 import 'app_colors.dart';
+import '../features/coach/coach_home.dart';
 
 class NexusCoachApp extends StatelessWidget {
   const NexusCoachApp({super.key});
