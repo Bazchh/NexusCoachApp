@@ -1,4 +1,4 @@
-class AppStrings {
+ï»¿class AppStrings {
   AppStrings._({
     required this.locale,
     required this.statusIdle,
@@ -126,11 +126,11 @@ class AppStrings {
     if (locale.startsWith('en')) {
       return 'Session started: $champion ($lane)';
     }
-    return 'Sessão iniciada: $champion ($lane)';
+    return 'SessÃ£o iniciada: $champion ($lane)';
   }
 
   String get sessionEnded =>
-      locale.startsWith('en') ? 'Session ended.' : 'Sessão encerrada.';
+      locale.startsWith('en') ? 'Session ended.' : 'SessÃ£o encerrada.';
 
   static final _pt = AppStrings._(
     locale: 'pt-BR',
@@ -141,10 +141,10 @@ class AppStrings {
     startButton: 'Iniciar partida',
     sessionActiveLabel: 'Partida ativa',
     endButton: 'Encerrar',
-    historyTitle: 'Últimas interações',
-    historyEmpty: 'Sem interações ainda.',
+    historyTitle: 'Ãšltimas interaÃ§Ãµes',
+    historyEmpty: 'Sem interaÃ§Ãµes ainda.',
     quickInputHint: 'Digite para testar',
-    settingsTitle: 'Configurações',
+    settingsTitle: 'ConfiguraÃ§Ãµes',
     pauseCoachTitle: 'Pausar coach',
     pauseCoachSubtitle: 'Desativa o microfone e respostas',
     micSensitivityTitle: 'Sensibilidade do microfone',
@@ -152,40 +152,40 @@ class AppStrings {
     languageVoiceTitle: 'Idioma e voz',
     privacyTitle: 'Privacidade',
     startSheetTitle: 'Contexto inicial',
-    championLabel: 'Campeão',
+    championLabel: 'CampeÃ£o',
     laneLabel: 'Rota',
     matchupLabel: 'Matchup (opcional)',
     startAction: 'Iniciar',
-    errorChampionRequired: 'Informe o campeão.',
-    errorStartFailed: 'Não foi possível iniciar.',
-    errorEndFailed: 'Não foi possível encerrar.',
-    errorSendFailed: 'Não foi possível enviar.',
+    errorChampionRequired: 'Informe o campeÃ£o.',
+    errorStartFailed: 'NÃ£o foi possÃ­vel iniciar.',
+    errorEndFailed: 'NÃ£o foi possÃ­vel encerrar.',
+    errorSendFailed: 'NÃ£o foi possÃ­vel enviar.',
     errorSessionRequired: 'Inicie uma partida antes de falar.',
     errorCoachPaused: 'Coach pausado. Ative para continuar.',
-    errorMicUnavailable: 'Não foi possível ativar o microfone.',
+    errorMicUnavailable: 'NÃ£o foi possÃ­vel ativar o microfone.',
     sendTooltip: 'Enviar',
     micStartTooltip: 'Falar',
     micStopTooltip: 'Parar',
     systemLabel: 'Sistema',
     coachLabel: 'Coach',
-    youLabel: 'Você',
+    youLabel: 'VocÃª',
     languageTitle: 'Idioma',
     voiceTitle: 'Voz',
     saveLabel: 'Salvar',
-    languagePortuguese: 'Português (pt-BR)',
-    languageEnglish: 'Inglês (en-US)',
+    languagePortuguese: 'PortuguÃªs (pt-BR)',
+    languageEnglish: 'InglÃªs (en-US)',
     voiceFemale: 'Feminina',
     voiceMale: 'Masculina',
     privacySummaryTitle: 'Resumo',
     privacySummaryBody:
-        'O NexusCoach não grava áudio bruto. Apenas o texto da sua fala pode '
-        'ser armazenado para melhorar as respostas. Você pode encerrar a sessão '
+        'O NexusCoach nÃ£o grava Ã¡udio bruto. Apenas o texto da sua fala pode '
+        'ser armazenado para melhorar as respostas. VocÃª pode encerrar a sessÃ£o '
         'a qualquer momento.',
     privacyDataTitle: 'Dados coletados',
     privacyDataBody:
         '- Texto transcrito da conversa\n'
-        '- Feedback da sessão (bom/ruim)\n'
-        '- Contexto básico da partida (campeão, lane, fase)',
+        '- Feedback da sessÃ£o (bom/ruim)\n'
+        '- Contexto bÃ¡sico da partida (campeÃ£o, lane, fase)',
     minimapReminderTitle: 'Lembrete de minimapa',
     minimapReminderSubtitle: 'Avisar periodicamente para olhar o mapa',
     minimapIntervalTitle: 'Intervalo do lembrete',
