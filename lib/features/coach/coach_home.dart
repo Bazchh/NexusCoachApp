@@ -55,7 +55,7 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
   bool _minimapReminder = false;
   double _minimapInterval = 45;
   bool _wardReminder = false;
-  double _wardInterval = 90;
+  static const int _wardIntervalFixed = 50; // Fixo em 50 segundos
   bool _overlayAutoStart = true;
   bool _overlayPermissionGranted = false;
   bool _overlayActive = false;
@@ -70,7 +70,6 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
   static const _keyMinimapReminder = 'minimap_reminder';
   static const _keyMinimapInterval = 'minimap_interval';
   static const _keyWardReminder = 'ward_reminder';
-  static const _keyWardInterval = 'ward_interval';
   static const _keyOverlayAutoStart = 'overlay_auto_start';
 
   @override
@@ -112,7 +111,6 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
       _minimapReminder = prefs.getBool(_keyMinimapReminder) ?? _minimapReminder;
       _minimapInterval = prefs.getDouble(_keyMinimapInterval) ?? _minimapInterval;
       _wardReminder = prefs.getBool(_keyWardReminder) ?? _wardReminder;
-      _wardInterval = prefs.getDouble(_keyWardInterval) ?? _wardInterval;
       _overlayAutoStart =
           prefs.getBool(_keyOverlayAutoStart) ?? _overlayAutoStart;
     });
@@ -343,28 +341,11 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
                         },
                         title: Text(strings.wardReminderTitle),
                         subtitle: Text(
-                          strings.wardReminderSubtitle,
+                          '${strings.wardReminderSubtitle} (${_wardIntervalFixed}s)',
                           style: const TextStyle(color: AppColors.textMuted),
                         ),
                         activeColor: AppColors.accent,
                       ),
-                      if (_wardReminder) ...[
-                        const SizedBox(height: 8),
-                        SliderTile(
-                          title: strings.wardIntervalTitle,
-                          value: _wardInterval,
-                          min: 60,
-                          max: 150,
-                          divisions: 9,
-                          label: '${_wardInterval.round()}s',
-                          onChanged: (value) async {
-                            setSheetState(() => _wardInterval = value);
-                            setState(() => _wardInterval = value);
-                            _saveDouble(_keyWardInterval, value);
-                            await _syncWardReminder();
-                          },
-                        ),
-                      ],
                       const SizedBox(height: 8),
                       SwitchListTile(
                         value: _overlayAutoStart,
@@ -795,7 +776,7 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
     final shouldRun = _wardReminder && _sessionActive && !_coachPaused;
     if (shouldRun) {
       await WardReminderController.start(
-        intervalSeconds: _wardInterval.round(),
+        intervalSeconds: _wardIntervalFixed,
         message: _strings.wardReminderMessage,
         locale: _language,
       );

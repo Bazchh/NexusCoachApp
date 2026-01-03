@@ -28,6 +28,10 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
+import android.content.Context
+import android.content.SharedPreferences
+import androidx.core.content.ContextCompat
+
 class OverlayService : Service() {
     companion object {
         const val ACTION_START = "com.nexuscoach.nexuscoach.START_OVERLAY"
@@ -43,7 +47,12 @@ class OverlayService : Service() {
     private var menuView: View? = null
     private var menuCloseButton: View? = null
     private var menuAppButton: View? = null
+    private var menuMinimapButton: View? = null
+    private var menuWardButton: View? = null
     private var removeView: View? = null
+    private var minimapEnabled = false
+    private var wardEnabled = false
+    private lateinit var prefs: SharedPreferences
     private var removeParams: WindowManager.LayoutParams? = null
     private var bubbleSizePx = 0
     private var menuButtonPx = 0
@@ -79,6 +88,10 @@ class OverlayService : Service() {
             stopSelf()
             return
         }
+
+        prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+        minimapEnabled = prefs.getBoolean("flutter.minimap_reminder", false)
+        wardEnabled = prefs.getBoolean("flutter.ward_reminder", false)
 
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         bubbleSizePx = dpToPx(56)
@@ -203,11 +216,7 @@ class OverlayService : Service() {
     private fun buildMenu(): View {
         val container = FrameLayout(this).apply {
             visibility = View.GONE
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = dpToPx(16).toFloat()
-                setColor(0x22111115.toInt())
-            }
+            // Sem background - totalmente transparente
         }
 
         val closeButton = buildMenuButton(
@@ -227,6 +236,23 @@ class OverlayService : Service() {
             openApp()
         }
 
+        // Botão toggle minimapa - M com cor baseada no estado
+        val minimapButton = buildToggleButton("M", minimapEnabled) {
+            minimapEnabled = !minimapEnabled
+            prefs.edit().putBoolean("flutter.minimap_reminder", minimapEnabled).apply()
+            updateToggleButtonStyle(menuMinimapButton as? TextView, minimapEnabled)
+            syncMinimapService()
+        }
+
+        // Botão toggle ward - W com cor baseada no estado
+        val wardButton = buildToggleButton("W", wardEnabled) {
+            wardEnabled = !wardEnabled
+            prefs.edit().putBoolean("flutter.ward_reminder", wardEnabled).apply()
+            updateToggleButtonStyle(menuWardButton as? TextView, wardEnabled)
+            syncWardService()
+        }
+
+        // Close - topo
         container.addView(
             closeButton,
             FrameLayout.LayoutParams(menuButtonPx, menuButtonPx, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
@@ -234,6 +260,7 @@ class OverlayService : Service() {
             }
         )
 
+        // App - direita
         container.addView(
             appButton,
             FrameLayout.LayoutParams(menuButtonPx, menuButtonPx, Gravity.CENTER_VERTICAL or Gravity.END).apply {
@@ -241,9 +268,96 @@ class OverlayService : Service() {
             }
         )
 
+        // Minimap - baixo
+        container.addView(
+            minimapButton,
+            FrameLayout.LayoutParams(menuButtonPx, menuButtonPx, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
+                bottomMargin = menuGapPx
+            }
+        )
+
+        // Ward - esquerda
+        container.addView(
+            wardButton,
+            FrameLayout.LayoutParams(menuButtonPx, menuButtonPx, Gravity.CENTER_VERTICAL or Gravity.START).apply {
+                leftMargin = menuGapPx
+            }
+        )
+
         menuCloseButton = closeButton
         menuAppButton = appButton
+        menuMinimapButton = minimapButton
+        menuWardButton = wardButton
         return container
+    }
+
+    private fun buildToggleButton(label: String, enabled: Boolean, onClick: () -> Unit): View {
+        val button = TextView(this).apply {
+            text = label
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setOnClickListener { onClick() }
+        }
+        updateToggleButtonStyle(button, enabled)
+        return button
+    }
+
+    private fun updateToggleButtonStyle(button: TextView?, enabled: Boolean) {
+        button ?: return
+        val bgColor = if (enabled) 0xFF1A3D2E.toInt() else 0xFF1B1F25.toInt()
+        val textColor = if (enabled) 0xFF2EFFD4.toInt() else 0xFF6B7280.toInt()
+        val strokeColor = if (enabled) 0xFF2EFFD4.toInt() else 0x33FFFFFF.toInt()
+
+        button.setTextColor(textColor)
+        val background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(bgColor)
+            setStroke(dpToPx(2), strokeColor)
+        }
+        button.background = background
+        button.elevation = dpToPx(6).toFloat()
+    }
+
+    private fun syncMinimapService() {
+        val intervalSeconds = prefs.getLong("flutter.minimap_interval", 45L).toInt()
+        val language = prefs.getString("flutter.language", "pt-BR") ?: "pt-BR"
+        val message = if (language.startsWith("en")) "Check the minimap" else "Olhe o minimapa"
+
+        if (minimapEnabled) {
+            val intent = Intent(this, MinimapReminderService::class.java).apply {
+                action = MinimapReminderService.ACTION_START
+                putExtra(MinimapReminderService.EXTRA_INTERVAL_MS, intervalSeconds * 1000L)
+                putExtra(MinimapReminderService.EXTRA_MESSAGE, message)
+                putExtra(MinimapReminderService.EXTRA_LOCALE, language)
+            }
+            ContextCompat.startForegroundService(this, intent)
+        } else {
+            val intent = Intent(this, MinimapReminderService::class.java).apply {
+                action = MinimapReminderService.ACTION_STOP
+            }
+            startService(intent)
+        }
+    }
+
+    private fun syncWardService() {
+        val language = prefs.getString("flutter.language", "pt-BR") ?: "pt-BR"
+        val message = if (language.startsWith("en")) "Place a ward" else "Coloque uma ward"
+
+        if (wardEnabled) {
+            val intent = Intent(this, WardReminderService::class.java).apply {
+                action = WardReminderService.ACTION_START
+                putExtra(WardReminderService.EXTRA_INTERVAL_MS, 50000L) // Fixo em 50 segundos
+                putExtra(WardReminderService.EXTRA_MESSAGE, message)
+                putExtra(WardReminderService.EXTRA_LOCALE, language)
+            }
+            ContextCompat.startForegroundService(this, intent)
+        } else {
+            val intent = Intent(this, WardReminderService::class.java).apply {
+                action = WardReminderService.ACTION_STOP
+            }
+            startService(intent)
+        }
     }
 
     private fun buildMenuButton(
@@ -289,16 +403,19 @@ class OverlayService : Service() {
         val container = menuView ?: return
         val closeButton = menuCloseButton
         val appButton = menuAppButton
-        val closeOffset = overlaySizePx / 2f - (menuGapPx + menuButtonPx / 2f)
-        val appOffset = overlaySizePx / 2f - (overlaySizePx - menuGapPx - menuButtonPx / 2f)
+        val minimapButton = menuMinimapButton
+        val wardButton = menuWardButton
+        val offset = overlaySizePx / 2f - (menuGapPx + menuButtonPx / 2f)
 
         container.visibility = View.VISIBLE
         container.alpha = 0f
         container.scaleX = 0.9f
         container.scaleY = 0.9f
 
-        closeButton?.translationY = closeOffset
-        appButton?.translationX = appOffset
+        closeButton?.translationY = offset
+        appButton?.translationX = -offset
+        minimapButton?.translationY = -offset
+        wardButton?.translationX = offset
 
         container.animate()
             .alpha(1f)
@@ -309,6 +426,8 @@ class OverlayService : Service() {
 
         closeButton?.animate()?.translationY(0f)?.setDuration(200)?.setInterpolator(OvershootInterpolator())?.start()
         appButton?.animate()?.translationX(0f)?.setDuration(200)?.setInterpolator(OvershootInterpolator())?.start()
+        minimapButton?.animate()?.translationY(0f)?.setDuration(200)?.setInterpolator(OvershootInterpolator())?.start()
+        wardButton?.animate()?.translationX(0f)?.setDuration(200)?.setInterpolator(OvershootInterpolator())?.start()
     }
 
     private fun hideMenu() {
@@ -317,11 +436,14 @@ class OverlayService : Service() {
         val container = menuView ?: return
         val closeButton = menuCloseButton
         val appButton = menuAppButton
-        val closeOffset = overlaySizePx / 2f - (menuGapPx + menuButtonPx / 2f)
-        val appOffset = overlaySizePx / 2f - (overlaySizePx - menuGapPx - menuButtonPx / 2f)
+        val minimapButton = menuMinimapButton
+        val wardButton = menuWardButton
+        val offset = overlaySizePx / 2f - (menuGapPx + menuButtonPx / 2f)
 
-        closeButton?.animate()?.translationY(closeOffset)?.setDuration(120)?.start()
-        appButton?.animate()?.translationX(appOffset)?.setDuration(120)?.start()
+        closeButton?.animate()?.translationY(offset)?.setDuration(120)?.start()
+        appButton?.animate()?.translationX(-offset)?.setDuration(120)?.start()
+        minimapButton?.animate()?.translationY(-offset)?.setDuration(120)?.start()
+        wardButton?.animate()?.translationX(offset)?.setDuration(120)?.start()
 
         container.animate()
             .alpha(0f)
