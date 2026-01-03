@@ -822,7 +822,7 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
 
   Future<void> _maybeStartOverlayService() async {
     debugPrint(
-        'maybeStartOverlayService auto= session= overlayActive=');
+        'maybeStartOverlayService auto=$_overlayAutoStart session=$_sessionActive overlayActive=$_overlayActive');
     if (!_overlayAutoStart || !_sessionActive || _overlayActive) {
       return;
     }

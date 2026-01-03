@@ -151,27 +151,28 @@ class OverlayService : Service() {
 
     private fun buildBubble(): View {
         val bubble = FrameLayout(this)
-        val background = GradientDrawable().apply {
+        val bubbleBackground = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
             gradientType = GradientDrawable.LINEAR_GRADIENT
             orientation = GradientDrawable.Orientation.TL_BR
             setColors(intArrayOf(0xFF2EFFD4.toInt(), 0xFF0D1419.toInt()))
             setStroke(dpToPx(2), 0xFF1E1E24.toInt())
         }
-        bubble.background = background
+        bubble.background = bubbleBackground
         bubble.elevation = dpToPx(12).toFloat()
 
         val glow = View(this).apply {
-            background = GradientDrawable().apply {
+            val glowBackground = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 gradientType = GradientDrawable.RADIAL_GRADIENT
                 setGradientCenter(0.5f, 0.5f)
                 setColors(intArrayOf(0x332EFFD4, 0x001C1C1C))
             }
+            background = glowBackground
         }
 
         val text = TextView(this).apply {
-            text = "N"
+            this.text = "N"
             setTextColor(0xFF05070A.toInt())
             textSize = 18f
             typeface = Typeface.DEFAULT_BOLD
@@ -180,9 +181,18 @@ class OverlayService : Service() {
 
         bubble.addView(
             glow,
-            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
         )
-        bubble.addView(text)
+        bubble.addView(
+            text,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
 
         bubble.setOnClickListener { toggleMenu() }
         return bubble
