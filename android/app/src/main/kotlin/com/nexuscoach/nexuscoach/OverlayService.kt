@@ -494,11 +494,20 @@ class OverlayService : Service() {
 
         val spacing = menuButtonPx + dpToPx(6)
         val startY = -((items.size - 1) * spacing) / 2f
-        val offsetX = bubbleSizePx / 2f + menuGapPx + menuButtonPx / 2f
+        val baseOffset = bubbleSizePx / 2f + menuGapPx + menuButtonPx / 2f
+        val direction = if (shouldOpenLeft()) -1f else 1f
+        val offsetX = direction * baseOffset
 
         return items.mapIndexed { index, view ->
             MenuItem(view, offsetX, startY + index * spacing, index)
         }
+    }
+
+    private fun shouldOpenLeft(): Boolean {
+        val params = overlayParams ?: return false
+        val metrics = Resources.getSystem().displayMetrics
+        val centerX = params.x + overlaySizePx / 2
+        return centerX > metrics.widthPixels / 2
     }
 
     private fun showMenu() {
