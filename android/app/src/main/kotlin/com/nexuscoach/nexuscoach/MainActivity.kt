@@ -80,7 +80,10 @@ class MainActivity : FlutterActivity() {
                         }
                         try {
                             Log.d("OverlayChannel", "start overlay service")
-                            startOverlayService()
+                            val sessionId = call.argument<String>("sessionId")
+                            val apiBaseUrl = call.argument<String>("apiBaseUrl")
+                            val locale = call.argument<String>("locale")
+                            startOverlayService(sessionId, apiBaseUrl, locale)
                             result.success(true)
                         } catch (error: Exception) {
                             Log.e("OverlayChannel", "start overlay failed", error)
@@ -95,6 +98,15 @@ class MainActivity : FlutterActivity() {
                         } catch (error: Exception) {
                             Log.e("OverlayChannel", "stop overlay failed", error)
                             result.error("STOP_FAILED", error.message, null)
+                        }
+                    }
+                    "minimize" -> {
+                        try {
+                            val moved = moveTaskToBack(true)
+                            result.success(moved)
+                        } catch (error: Exception) {
+                            Log.e("OverlayChannel", "minimize failed", error)
+                            result.error("MINIMIZE_FAILED", error.message, null)
                         }
                     }
                     else -> result.notImplemented()
@@ -136,9 +148,22 @@ class MainActivity : FlutterActivity() {
         startService(intent)
     }
 
-    private fun startOverlayService() {
+    private fun startOverlayService(
+        sessionId: String?,
+        apiBaseUrl: String?,
+        locale: String?
+    ) {
         val intent = Intent(this, OverlayService::class.java).apply {
             action = OverlayService.ACTION_START
+            if (!sessionId.isNullOrBlank()) {
+                putExtra(OverlayService.EXTRA_SESSION_ID, sessionId)
+            }
+            if (!apiBaseUrl.isNullOrBlank()) {
+                putExtra(OverlayService.EXTRA_API_BASE_URL, apiBaseUrl)
+            }
+            if (!locale.isNullOrBlank()) {
+                putExtra(OverlayService.EXTRA_LOCALE, locale)
+            }
         }
         ContextCompat.startForegroundService(this, intent)
     }

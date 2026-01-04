@@ -9,11 +9,13 @@ class PrimaryAction extends StatelessWidget {
     required this.label,
     required this.onPressed,
     required this.enabled,
+    this.buttonKey,
   });
 
   final String label;
   final VoidCallback? onPressed;
   final bool enabled;
+  final GlobalKey? buttonKey;
 
   @override
   Widget build(BuildContext context) {
@@ -21,6 +23,7 @@ class PrimaryAction extends StatelessWidget {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 320),
         child: SizedBox(
+          key: buttonKey,
           height: 58,
           width: double.infinity,
           child: ElevatedButton(

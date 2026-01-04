@@ -47,12 +47,11 @@ class QuickInput extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          IconButton(
-            onPressed: micEnabled ? onMicTap : null,
-            icon: Icon(micActive ? Icons.mic : Icons.mic_none),
-            color: micActive ? AppColors.accent : AppColors.textMuted,
-            disabledColor: AppColors.border,
+          _MicButton(
+            enabled: micEnabled,
+            active: micActive,
             tooltip: micTooltip,
+            onTap: onMicTap,
           ),
           IconButton(
             onPressed: enabled ? onSend : null,
@@ -61,6 +60,93 @@ class QuickInput extends StatelessWidget {
             tooltip: sendTooltip,
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Botão de microfone com animação de pulso quando ativo
+class _MicButton extends StatefulWidget {
+  const _MicButton({
+    required this.enabled,
+    required this.active,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  final bool enabled;
+  final bool active;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  @override
+  State<_MicButton> createState() => _MicButtonState();
+}
+
+class _MicButtonState extends State<_MicButton>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+    _scaleAnimation = Tween<double>(begin: 1.0, end: 1.2).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void didUpdateWidget(_MicButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.active && !oldWidget.active) {
+      _controller.repeat(reverse: true);
+    } else if (!widget.active && oldWidget.active) {
+      _controller.stop();
+      _controller.reset();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: widget.tooltip,
+      child: GestureDetector(
+        onTap: widget.enabled ? widget.onTap : null,
+        child: AnimatedBuilder(
+          animation: _scaleAnimation,
+          builder: (context, child) {
+            return Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: widget.active
+                    ? AppColors.accent.withValues(alpha: 0.2)
+                    : Colors.transparent,
+              ),
+              child: Transform.scale(
+                scale: widget.active ? _scaleAnimation.value : 1.0,
+                child: Icon(
+                  widget.active ? Icons.mic : Icons.mic_none,
+                  color: widget.enabled
+                      ? (widget.active ? AppColors.accent : AppColors.textMuted)
+                      : AppColors.border,
+                ),
+              ),
+            );
+          },
+        ),
       ),
     );
   }

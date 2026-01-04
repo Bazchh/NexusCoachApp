@@ -8,11 +8,13 @@ class TopRow extends StatelessWidget {
     required this.onSettingsTap,
     required this.statusLabel,
     required this.settingsTooltip,
+    this.settingsKey,
   });
 
   final VoidCallback onSettingsTap;
   final String statusLabel;
   final String settingsTooltip;
+  final GlobalKey? settingsKey;
 
   @override
   Widget build(BuildContext context) {
@@ -21,6 +23,7 @@ class TopRow extends StatelessWidget {
       children: [
         _StatusChip(label: statusLabel),
         IconButton(
+          key: settingsKey,
           onPressed: onSettingsTap,
           icon: const Icon(Icons.settings),
           color: AppColors.textMuted,

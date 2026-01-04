@@ -16,6 +16,7 @@ class AppStrings {
     required this.pauseCoachSubtitle,
     required this.micSensitivityTitle,
     required this.coachVolumeTitle,
+    required this.speechRateTitle,
     required this.languageVoiceTitle,
     required this.privacyTitle,
     required this.startSheetTitle,
@@ -77,6 +78,15 @@ class AppStrings {
     required this.feedbackGood,
     required this.feedbackBad,
     required this.feedbackThanks,
+    required this.tutorialStartTitle,
+    required this.tutorialStartDesc,
+    required this.tutorialSettingsTitle,
+    required this.tutorialSettingsDesc,
+    required this.tutorialOverlayTitle,
+    required this.tutorialOverlayDesc,
+    required this.tutorialSkip,
+    required this.tutorialNext,
+    required this.tutorialFinish,
   });
 
   final String locale;
@@ -95,6 +105,7 @@ class AppStrings {
   final String pauseCoachSubtitle;
   final String micSensitivityTitle;
   final String coachVolumeTitle;
+  final String speechRateTitle;
   final String languageVoiceTitle;
   final String privacyTitle;
   final String startSheetTitle;
@@ -156,6 +167,15 @@ class AppStrings {
   final String feedbackGood;
   final String feedbackBad;
   final String feedbackThanks;
+  final String tutorialStartTitle;
+  final String tutorialStartDesc;
+  final String tutorialSettingsTitle;
+  final String tutorialSettingsDesc;
+  final String tutorialOverlayTitle;
+  final String tutorialOverlayDesc;
+  final String tutorialSkip;
+  final String tutorialNext;
+  final String tutorialFinish;
 
   static AppStrings of(String locale) {
     if (locale.startsWith('en')) {
@@ -191,6 +211,7 @@ class AppStrings {
     pauseCoachSubtitle: 'Desativa o microfone e as respostas',
     micSensitivityTitle: 'Sensibilidade do microfone',
     coachVolumeTitle: 'Volume do coach',
+    speechRateTitle: 'Velocidade da fala',
     languageVoiceTitle: 'Idioma e voz',
     privacyTitle: 'Privacidade',
     startSheetTitle: 'Contexto inicial',
@@ -259,6 +280,15 @@ class AppStrings {
     feedbackGood: 'Foi útil',
     feedbackBad: 'Não ajudou',
     feedbackThanks: 'Obrigado! Registramos o feedback.',
+    tutorialStartTitle: 'Iniciar Partida',
+    tutorialStartDesc: 'Toque aqui para começar uma sessão de coaching. Informe seu campeão, rota e oponente.',
+    tutorialSettingsTitle: 'Configurações',
+    tutorialSettingsDesc: 'Ajuste sensibilidade do microfone, lembretes de minimapa/ward, idioma e muito mais.',
+    tutorialOverlayTitle: 'Botão Flutuante',
+    tutorialOverlayDesc: 'Durante a partida, este botão fica sobre o jogo. Toque nele para acessar os controles rapidamente: ativar lembretes (M/W), abrir o app ou fechar.',
+    tutorialSkip: 'Pular',
+    tutorialNext: 'Próximo',
+    tutorialFinish: 'Entendi!',
   );
 
   static final _en = AppStrings._(
@@ -278,6 +308,7 @@ class AppStrings {
     pauseCoachSubtitle: 'Disables mic and responses',
     micSensitivityTitle: 'Mic sensitivity',
     coachVolumeTitle: 'Coach volume',
+    speechRateTitle: 'Speech rate',
     languageVoiceTitle: 'Language & voice',
     privacyTitle: 'Privacy',
     startSheetTitle: 'Initial context',
@@ -346,5 +377,14 @@ class AppStrings {
     feedbackGood: 'It helped',
     feedbackBad: 'Not useful',
     feedbackThanks: 'Thanks! We logged your response.',
+    tutorialStartTitle: 'Start Match',
+    tutorialStartDesc: 'Tap here to begin a coaching session. Enter your champion, lane and opponent.',
+    tutorialSettingsTitle: 'Settings',
+    tutorialSettingsDesc: 'Adjust mic sensitivity, minimap/ward reminders, language and more.',
+    tutorialOverlayTitle: 'Floating Button',
+    tutorialOverlayDesc: 'During the match, this button stays over your game. Tap it to quickly access controls: toggle reminders (M/W), open app or close.',
+    tutorialSkip: 'Skip',
+    tutorialNext: 'Next',
+    tutorialFinish: 'Got it!',
   );
 }

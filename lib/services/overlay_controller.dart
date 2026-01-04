@@ -19,9 +19,18 @@ class OverlayController {
     } catch (_) {}
   }
 
-  static Future<bool> start() async {
+  static Future<bool> start({
+    String? sessionId,
+    String? apiBaseUrl,
+    String? locale,
+  }) async {
     try {
-      return (await _channel.invokeMethod<bool>('start')) ?? false;
+      return (await _channel.invokeMethod<bool>('start', {
+        'sessionId': sessionId,
+        'apiBaseUrl': apiBaseUrl,
+        'locale': locale,
+      })) ??
+          false;
     } catch (error) {
       debugPrint('Overlay start failed: $error');
       return false;
@@ -34,6 +43,14 @@ class OverlayController {
     } catch (error) {
       debugPrint('Overlay stop failed: $error');
       return false;
+    }
+  }
+
+  static Future<void> minimizeApp() async {
+    try {
+      await _channel.invokeMethod('minimize');
+    } catch (error) {
+      debugPrint('Overlay minimize failed: $error');
     }
   }
 }

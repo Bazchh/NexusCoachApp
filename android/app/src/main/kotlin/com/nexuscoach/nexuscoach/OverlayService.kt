@@ -13,8 +13,13 @@ import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
+import android.os.Bundle
 import android.os.IBinder
 import android.provider.Settings
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
+import android.speech.tts.TextToSpeech
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -24,6 +29,12 @@ import android.view.animation.OvershootInterpolator
 import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.Locale
+import org.json.JSONObject
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -33,9 +44,19 @@ import android.content.SharedPreferences
 import androidx.core.content.ContextCompat
 
 class OverlayService : Service() {
+    private data class MenuItem(
+        val view: View,
+        val offsetX: Float,
+        val offsetY: Float,
+        val index: Int,
+    )
     companion object {
         const val ACTION_START = "com.nexuscoach.nexuscoach.START_OVERLAY"
         const val ACTION_STOP = "com.nexuscoach.nexuscoach.STOP_OVERLAY"
+
+        const val EXTRA_SESSION_ID = "session_id"
+        const val EXTRA_API_BASE_URL = "api_base_url"
+        const val EXTRA_LOCALE = "locale"
 
         private const val CHANNEL_ID = "nexuscoach_overlay"
         private const val NOTIFICATION_ID = 2201
@@ -49,6 +70,7 @@ class OverlayService : Service() {
     private var menuAppButton: View? = null
     private var menuMinimapButton: View? = null
     private var menuWardButton: View? = null
+    private var menuMicButton: TextView? = null
     private var removeView: View? = null
     private var minimapEnabled = false
     private var wardEnabled = false
@@ -66,10 +88,78 @@ class OverlayService : Service() {
     private var removeHighlighted = false
     private var menuVisible = false
     private var snapAnimator: ValueAnimator? = null
+    private var speechRecognizer: SpeechRecognizer? = null
+    private var micListening = false
+    private var awaitingFinal = false
+    private var lastTranscript = ""
+    private var sessionId: String? = null
+    private var apiBaseUrl: String? = null
+    private var localeTag: String = "pt-BR"
+    private var tts: TextToSpeech? = null
+    private var ttsReady = false
+    private val menuItemCount = 5
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    override fun onCreate() {
+        super.onCreate()
+        tts = TextToSpeech(this) { status ->
+            ttsReady = status == TextToSpeech.SUCCESS
+            if (ttsReady) {
+                tts?.language = parseLocale(localeTag)
+            }
+        }
+        if (SpeechRecognizer.isRecognitionAvailable(this)) {
+            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
+                setRecognitionListener(object : RecognitionListener {
+                    override fun onReadyForSpeech(params: Bundle?) {}
+                    override fun onBeginningOfSpeech() {}
+                    override fun onRmsChanged(rmsdB: Float) {}
+                    override fun onBufferReceived(buffer: ByteArray?) {}
+                    override fun onEndOfSpeech() {}
+                    override fun onEvent(eventType: Int, params: Bundle?) {}
+
+                    override fun onError(error: Int) {
+                        micListening = false
+                        awaitingFinal = false
+                        updateMicButton(false)
+                    }
+
+                    override fun onPartialResults(partialResults: Bundle?) {
+                        val items =
+                            partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                        if (!items.isNullOrEmpty()) {
+                            lastTranscript = items.first()
+                        }
+                    }
+
+                    override fun onResults(results: Bundle?) {
+                        val items =
+                            results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                        if (!items.isNullOrEmpty()) {
+                            lastTranscript = items.first()
+                        }
+                        micListening = false
+                        updateMicButton(false)
+                        if (awaitingFinal && lastTranscript.isNotBlank()) {
+                            awaitingFinal = false
+                            sendTurn(lastTranscript)
+                        }
+                    }
+                })
+            }
+        }
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        intent?.getStringExtra(EXTRA_SESSION_ID)?.let { sessionId = it }
+        intent?.getStringExtra(EXTRA_API_BASE_URL)?.let { apiBaseUrl = it }
+        intent?.getStringExtra(EXTRA_LOCALE)?.let {
+            localeTag = it
+            if (ttsReady) {
+                tts?.language = parseLocale(localeTag)
+            }
+        }
         when (intent?.action) {
             ACTION_START -> showOverlay()
             ACTION_STOP -> stopSelf()
@@ -79,6 +169,11 @@ class OverlayService : Service() {
 
     override fun onDestroy() {
         removeOverlay()
+        speechRecognizer?.destroy()
+        speechRecognizer = null
+        tts?.stop()
+        tts?.shutdown()
+        tts = null
         super.onDestroy()
     }
 
@@ -92,12 +187,19 @@ class OverlayService : Service() {
         prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
         minimapEnabled = prefs.getBoolean("flutter.minimap_reminder", false)
         wardEnabled = prefs.getBoolean("flutter.ward_reminder", false)
+        localeTag = prefs.getString("flutter.language", localeTag) ?: localeTag
+        if (ttsReady) {
+            tts?.language = parseLocale(localeTag)
+        }
 
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         bubbleSizePx = dpToPx(56)
         menuButtonPx = dpToPx(40)
         menuGapPx = dpToPx(10)
-        overlaySizePx = bubbleSizePx + 2 * (menuButtonPx + menuGapPx)
+        val menuSpacing = menuButtonPx + dpToPx(6)
+        val menuSpan = (menuItemCount - 1) * menuSpacing + menuButtonPx
+        val baseSize = bubbleSizePx + 2 * (menuButtonPx + menuGapPx)
+        overlaySizePx = max(baseSize, menuSpan + 2 * menuGapPx)
         removeSizePx = dpToPx(72)
         removeOffsetPx = dpToPx(96)
         removeMagnetDistance = removeSizePx / 2 + dpToPx(40)
@@ -219,6 +321,9 @@ class OverlayService : Service() {
             // Sem background - totalmente transparente
         }
 
+        val micButton = buildToggleButton("MIC", micListening) {
+            toggleMic()
+        }
         val closeButton = buildMenuButton(
             label = "\u2715",
             backgroundColor = 0xFF1B1F25.toInt(),
@@ -252,38 +357,18 @@ class OverlayService : Service() {
             syncWardService()
         }
 
-        // Close - topo
-        container.addView(
-            closeButton,
-            FrameLayout.LayoutParams(menuButtonPx, menuButtonPx, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
-                topMargin = menuGapPx
-            }
+        val centerParams = FrameLayout.LayoutParams(
+            menuButtonPx,
+            menuButtonPx,
+            Gravity.CENTER
         )
+        container.addView(closeButton, centerParams)
+        container.addView(appButton, centerParams)
+        container.addView(micButton, centerParams)
+        container.addView(minimapButton, centerParams)
+        container.addView(wardButton, centerParams)
 
-        // App - direita
-        container.addView(
-            appButton,
-            FrameLayout.LayoutParams(menuButtonPx, menuButtonPx, Gravity.CENTER_VERTICAL or Gravity.END).apply {
-                rightMargin = menuGapPx
-            }
-        )
-
-        // Minimap - baixo
-        container.addView(
-            minimapButton,
-            FrameLayout.LayoutParams(menuButtonPx, menuButtonPx, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
-                bottomMargin = menuGapPx
-            }
-        )
-
-        // Ward - esquerda
-        container.addView(
-            wardButton,
-            FrameLayout.LayoutParams(menuButtonPx, menuButtonPx, Gravity.CENTER_VERTICAL or Gravity.START).apply {
-                leftMargin = menuGapPx
-            }
-        )
-
+        menuMicButton = micButton as TextView
         menuCloseButton = closeButton
         menuAppButton = appButton
         menuMinimapButton = minimapButton
@@ -397,61 +482,77 @@ class OverlayService : Service() {
         if (menuVisible) hideMenu() else showMenu()
     }
 
+    private fun buildMenuItems(): List<MenuItem> {
+        val items = listOfNotNull(
+            menuCloseButton,
+            menuAppButton,
+            menuMicButton,
+            menuMinimapButton,
+            menuWardButton,
+        )
+        if (items.isEmpty()) return emptyList()
+
+        val spacing = menuButtonPx + dpToPx(6)
+        val startY = -((items.size - 1) * spacing) / 2f
+        val offsetX = bubbleSizePx / 2f + menuGapPx + menuButtonPx / 2f
+
+        return items.mapIndexed { index, view ->
+            MenuItem(view, offsetX, startY + index * spacing, index)
+        }
+    }
+
     private fun showMenu() {
         if (menuVisible) return
         menuVisible = true
         val container = menuView ?: return
-        val closeButton = menuCloseButton
-        val appButton = menuAppButton
-        val minimapButton = menuMinimapButton
-        val wardButton = menuWardButton
-        val offset = overlaySizePx / 2f - (menuGapPx + menuButtonPx / 2f)
+        val items = buildMenuItems()
+        val step = dpToPx(12).toFloat()
 
         container.visibility = View.VISIBLE
-        container.alpha = 0f
-        container.scaleX = 0.9f
-        container.scaleY = 0.9f
+        container.alpha = 1f
+        container.scaleX = 1f
+        container.scaleY = 1f
 
-        closeButton?.translationY = offset
-        appButton?.translationX = -offset
-        minimapButton?.translationY = -offset
-        wardButton?.translationX = offset
+        items.forEach { item ->
+            item.view.alpha = 0f
+            item.view.scaleX = 0.85f
+            item.view.scaleY = 0.85f
+            item.view.translationX = item.offsetX
+            item.view.translationY = item.offsetY - step
+        }
 
-        container.animate()
-            .alpha(1f)
-            .scaleX(1f)
-            .scaleY(1f)
-            .setDuration(160)
-            .start()
-
-        closeButton?.animate()?.translationY(0f)?.setDuration(200)?.setInterpolator(OvershootInterpolator())?.start()
-        appButton?.animate()?.translationX(0f)?.setDuration(200)?.setInterpolator(OvershootInterpolator())?.start()
-        minimapButton?.animate()?.translationY(0f)?.setDuration(200)?.setInterpolator(OvershootInterpolator())?.start()
-        wardButton?.animate()?.translationX(0f)?.setDuration(200)?.setInterpolator(OvershootInterpolator())?.start()
+        items.forEach { item ->
+            item.view.animate()
+                .alpha(1f)
+                .scaleX(1f)
+                .scaleY(1f)
+                .translationY(item.offsetY)
+                .setStartDelay((item.index * 60).toLong())
+                .setDuration(180)
+                .setInterpolator(OvershootInterpolator())
+                .start()
+        }
     }
 
     private fun hideMenu() {
         if (!menuVisible) return
         menuVisible = false
         val container = menuView ?: return
-        val closeButton = menuCloseButton
-        val appButton = menuAppButton
-        val minimapButton = menuMinimapButton
-        val wardButton = menuWardButton
-        val offset = overlaySizePx / 2f - (menuGapPx + menuButtonPx / 2f)
+        val items = buildMenuItems()
+        val step = dpToPx(12).toFloat()
+        val delay = if (items.isEmpty()) 0L else (items.size - 1) * 60L
 
-        closeButton?.animate()?.translationY(offset)?.setDuration(120)?.start()
-        appButton?.animate()?.translationX(-offset)?.setDuration(120)?.start()
-        minimapButton?.animate()?.translationY(-offset)?.setDuration(120)?.start()
-        wardButton?.animate()?.translationX(offset)?.setDuration(120)?.start()
+        items.forEach { item ->
+            item.view.animate()
+                .alpha(0f)
+                .scaleX(0.85f)
+                .scaleY(0.85f)
+                .translationY(item.offsetY - step)
+                .setDuration(140)
+                .start()
+        }
 
-        container.animate()
-            .alpha(0f)
-            .scaleX(0.9f)
-            .scaleY(0.9f)
-            .setDuration(140)
-            .withEndAction { container.visibility = View.GONE }
-            .start()
+        container.postDelayed({ container.visibility = View.GONE }, delay + 160)
     }
 
     private fun openApp() {
@@ -463,6 +564,99 @@ class OverlayService : Service() {
         startActivity(intent)
         // Para o overlay ao abrir o app - ele será reiniciado quando o app voltar ao background
         stopSelf()
+    }
+
+    private fun toggleMic() {
+        if (micListening) {
+            stopListening()
+        } else {
+            startListening()
+        }
+    }
+
+    private fun startListening() {
+        if (speechRecognizer == null) return
+        lastTranscript = ""
+        awaitingFinal = false
+        micListening = true
+        updateMicButton(true)
+
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(
+                RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
+            )
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, localeTag)
+        }
+        speechRecognizer?.startListening(intent)
+    }
+
+    private fun stopListening() {
+        if (speechRecognizer == null) return
+        awaitingFinal = true
+        micListening = false
+        updateMicButton(false)
+        speechRecognizer?.stopListening()
+    }
+
+    private fun updateMicButton(active: Boolean) {
+        val button = menuMicButton ?: return
+        button.text = if (active) "STOP" else "MIC"
+        updateToggleButtonStyle(button, active)
+    }
+
+    private fun sendTurn(text: String) {
+        val session = sessionId
+        val baseUrl = apiBaseUrl
+        if (session.isNullOrBlank() || baseUrl.isNullOrBlank()) {
+            return
+        }
+        Thread {
+            try {
+                val url = URL(baseUrl.trimEnd('/') + "/turn")
+                val conn = url.openConnection() as HttpURLConnection
+                conn.requestMethod = "POST"
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.doOutput = true
+
+                val payload = JSONObject()
+                payload.put("session_id", session)
+                payload.put("text", text)
+                conn.outputStream.use { stream ->
+                    stream.write(payload.toString().toByteArray(Charsets.UTF_8))
+                }
+
+                if (conn.responseCode in 200..299) {
+                    val responseText = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+                    val json = JSONObject(responseText)
+                    val data = json.optJSONObject("data")
+                    val reply = data?.optString("reply_text") ?: ""
+                    if (reply.isNotBlank()) {
+                        speak(reply)
+                    }
+                }
+                conn.disconnect()
+            } catch (_: Exception) {
+            }
+        }.start()
+    }
+
+    private fun speak(text: String) {
+        if (!ttsReady) return
+        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "overlay")
+    }
+
+    private fun parseLocale(tag: String?): Locale {
+        if (tag.isNullOrBlank()) {
+            return Locale("pt", "BR")
+        }
+        val parts = tag.split("-")
+        return if (parts.size >= 2) {
+            Locale(parts[0], parts[1])
+        } else {
+            Locale(tag)
+        }
     }
 
     private fun attachDragHandler(
@@ -640,6 +834,7 @@ class OverlayService : Service() {
         if (target.parent == null) {
             windowManager?.addView(target, removeParams)
         }
+        target.post { updateRemoveTargetFromView(target) }
         val drop = dpToPx(12).toFloat()
         target.alpha = 0f
         target.scaleX = 0.7f
@@ -682,6 +877,21 @@ class OverlayService : Service() {
             .scaleY(if (isOver) 1.08f else 1f)
             .setDuration(120)
             .start()
+    }
+
+    private fun updateRemoveTargetFromView(target: View) {
+        val location = IntArray(2)
+        target.getLocationOnScreen(location)
+        val width = target.width
+        val height = target.height
+        if (width > 0 && height > 0) {
+            removeTargetX = location[0] + width / 2
+            removeTargetY = location[1] + height / 2
+            return
+        }
+        val metrics = Resources.getSystem().displayMetrics
+        removeTargetX = metrics.widthPixels / 2
+        removeTargetY = metrics.heightPixels - removeOffsetPx - removeSizePx / 2
     }
 
     private fun isInRemoveZone(params: WindowManager.LayoutParams): Boolean {

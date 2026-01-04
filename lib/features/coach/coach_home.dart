@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:speech_to_text/speech_to_text.dart';
+import 'package:tutorial_coach_mark/tutorial_coach_mark.dart';
 
 import '../../app/app_colors.dart';
 import '../../app/app_strings.dart';
@@ -10,6 +11,7 @@ import '../../models/session_models.dart';
 import '../../services/minimap_reminder_controller.dart';
 import '../../services/nexus_api.dart';
 import '../../services/overlay_controller.dart';
+import '../../services/tts_controller.dart';
 import '../../services/ward_reminder_controller.dart';
 import '../settings/language_voice_screen.dart';
 import '../settings/privacy_screen.dart';
@@ -41,6 +43,14 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
   final TextEditingController _textController = TextEditingController();
   final SpeechToText _speech = SpeechToText();
 
+  // Tutorial keys
+  final GlobalKey _keyStartButton = GlobalKey();
+  final GlobalKey _keySettingsButton = GlobalKey();
+  final GlobalKey _keyOverlayDemo = GlobalKey();
+  TutorialCoachMark? _tutorialCoachMark;
+  bool _showOverlayDemo = false;
+  static const _keyTutorialSeen = 'tutorial_seen';
+
   String? _sessionId;
   bool _sessionActive = false;
   bool _busy = false;
@@ -50,6 +60,7 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
   bool _coachPaused = false;
   double _micSensitivity = 0.7;
   double _coachVolume = 0.8;
+  double _speechRate = 0.5;
   String _language = 'pt-BR';
   String _voice = 'Feminina';
   bool _minimapReminder = false;
@@ -65,12 +76,17 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
   static const _keyCoachPaused = 'coach_paused';
   static const _keyMicSensitivity = 'mic_sensitivity';
   static const _keyCoachVolume = 'coach_volume';
+  static const _keySpeechRate = 'speech_rate';
   static const _keyLanguage = 'language';
   static const _keyVoice = 'voice';
   static const _keyMinimapReminder = 'minimap_reminder';
   static const _keyMinimapInterval = 'minimap_interval';
   static const _keyWardReminder = 'ward_reminder';
   static const _keyOverlayAutoStart = 'overlay_auto_start';
+  static const _keySessionId = 'session_id';
+  static const _keySessionActive = 'session_active';
+  static const _keySessionChampion = 'session_champion';
+  static const _keySessionLane = 'session_lane';
 
   @override
   void initState() {
@@ -84,6 +100,7 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _textController.dispose();
     _speech.stop();
+    TtsController.dispose();
     OverlayController.stop();
     super.dispose();
   }
@@ -106,6 +123,7 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
       _coachPaused = prefs.getBool(_keyCoachPaused) ?? _coachPaused;
       _micSensitivity = prefs.getDouble(_keyMicSensitivity) ?? _micSensitivity;
       _coachVolume = prefs.getDouble(_keyCoachVolume) ?? _coachVolume;
+      _speechRate = prefs.getDouble(_keySpeechRate) ?? _speechRate;
       _language = prefs.getString(_keyLanguage) ?? _language;
       _voice = prefs.getString(_keyVoice) ?? _voice;
       _minimapReminder = prefs.getBool(_keyMinimapReminder) ?? _minimapReminder;
@@ -113,10 +131,24 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
       _wardReminder = prefs.getBool(_keyWardReminder) ?? _wardReminder;
       _overlayAutoStart =
           prefs.getBool(_keyOverlayAutoStart) ?? _overlayAutoStart;
+      _sessionId = prefs.getString(_keySessionId);
+      _sessionChampion = prefs.getString(_keySessionChampion);
+      _sessionLane = prefs.getString(_keySessionLane);
+      _sessionActive =
+          prefs.getBool(_keySessionActive) ?? (_sessionId != null);
     });
     await _syncMinimapReminder();
     await _syncWardReminder();
     await _updateOverlayPermission();
+    await _initTts();
+
+    // Mostrar tutorial na primeira vez
+    final tutorialSeen = prefs.getBool(_keyTutorialSeen) ?? false;
+    if (!tutorialSeen && mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showTutorial();
+      });
+    }
   }
 
   AppStrings get _strings => AppStrings.of(_language);
@@ -149,6 +181,28 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
     await prefs.setString(key, value);
   }
 
+  Future<void> _persistSessionState() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (_sessionId != null) {
+      await prefs.setString(_keySessionId, _sessionId!);
+    }
+    await prefs.setBool(_keySessionActive, _sessionActive);
+    if (_sessionChampion != null) {
+      await prefs.setString(_keySessionChampion, _sessionChampion!);
+    }
+    if (_sessionLane != null) {
+      await prefs.setString(_keySessionLane, _sessionLane!);
+    }
+  }
+
+  Future<void> _clearSessionState() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_keySessionId);
+    await prefs.remove(_keySessionActive);
+    await prefs.remove(_keySessionChampion);
+    await prefs.remove(_keySessionLane);
+  }
+
   @override
   Widget build(BuildContext context) {
     final strings = _strings;
@@ -172,8 +226,16 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
                     statusLabel: _statusLabel,
                     settingsTooltip: strings.settingsTitle,
                     onSettingsTap: () => _openSettingsSheet(context, strings),
+                    settingsKey: _keySettingsButton,
                   ),
                 ),
+                // Widget de demonstração do overlay para o tutorial
+                if (_showOverlayDemo)
+                  Positioned(
+                    left: 24,
+                    top: 180,
+                    child: _OverlayDemo(key: _keyOverlayDemo),
+                  ),
                 Align(
                   alignment: Alignment.center,
                   child: Column(
@@ -188,6 +250,7 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
                         onPressed: _sessionActive || _busy
                             ? null
                             : () => _openStartSheet(context, strings),
+                        buttonKey: _keyStartButton,
                       ),
                       const SizedBox(height: 20),
                       if (_sessionActive) ...[
@@ -266,6 +329,7 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
                           _saveBool(_keyCoachPaused, value);
                           if (value) {
                             await _stopVoiceInput();
+                            await TtsController.stop();
                           }
                           await _syncMinimapReminder();
                           await _syncWardReminder();
@@ -295,6 +359,20 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
                           setSheetState(() => _coachVolume = value);
                           setState(() => _coachVolume = value);
                           _saveDouble(_keyCoachVolume, value);
+                          TtsController.setVolume(value);
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      SliderTile(
+                        title: strings.speechRateTitle,
+                        value: _speechRate,
+                        min: 0.25,
+                        max: 0.75,
+                        onChanged: (value) {
+                          setSheetState(() => _speechRate = value);
+                          setState(() => _speechRate = value);
+                          _saveDouble(_keySpeechRate, value);
+                          TtsController.setSpeechRate(value);
                         },
                       ),
                       const SizedBox(height: 8),
@@ -406,6 +484,11 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
                             _saveString(_keyVoice, result.voice);
                             await _syncMinimapReminder();
                             await _syncWardReminder();
+                            // Atualiza TTS com novo idioma/voz
+                            await TtsController.setLanguage(result.language);
+                            await TtsController.setGender(
+                              isMale: result.voice == 'Masculina',
+                            );
                           }
                         },
                       ),
@@ -589,6 +672,7 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
             ),
           );
       });
+      await _persistSessionState();
       await _syncMinimapReminder();
       await _syncWardReminder();
       await _maybeStartOverlayService(minimizeApp: true);
@@ -627,6 +711,7 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
         _sessionLane = null;
         _history.add(HistoryEntry(strings.systemLabel, strings.sessionEnded));
       });
+      await _clearSessionState();
       await _syncMinimapReminder();
       await _syncWardReminder();
       await _stopOverlayService();
@@ -668,6 +753,8 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
       setState(() {
         _history.add(HistoryEntry(strings.coachLabel, result.replyText));
       });
+      // Fala a resposta do coach
+      await _speakResponse(result.replyText);
     } on ApiException catch (error) {
       _showError(error.message);
     } catch (_) {
@@ -689,20 +776,35 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
       _showError(strings.errorCoachPaused);
       return;
     }
+
+    // Toggle: se está ouvindo, para e envia
     if (_voiceListening) {
-      await _stopVoiceInput();
+      await _stopVoiceInputAndSend();
       return;
     }
 
+    // Inicia gravação
     final available = await _speech.initialize(
       onStatus: (status) {
         if (!mounted) return;
-        if (status == 'notListening' || status == 'done') {
-          setState(() => _voiceListening = false);
+        // Não para automaticamente - só quando usuário clicar de novo
+        if (status == 'done') {
+          // Se parou por timeout/silêncio, reinicia automaticamente
+          if (_voiceListening && mounted) {
+            _restartListening();
+          }
         }
       },
-      onError: (_) {
+      onError: (error) {
         if (!mounted) return;
+        // Ignora erro de "no speech" - continua ouvindo
+        if (error.errorMsg == 'error_no_match' ||
+            error.errorMsg == 'error_speech_timeout') {
+          if (_voiceListening && mounted) {
+            _restartListening();
+          }
+          return;
+        }
         setState(() => _voiceListening = false);
         _showError(strings.errorMicUnavailable);
       },
@@ -714,24 +816,46 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
     }
 
     setState(() => _voiceListening = true);
+    await _startListening();
+  }
+
+  Future<void> _startListening() async {
     await _speech.listen(
       localeId: _language,
-      listenFor: const Duration(seconds: 8),
-      pauseFor: const Duration(seconds: 2),
+      listenFor: const Duration(seconds: 30),
+      pauseFor: const Duration(seconds: 3),
       partialResults: true,
       onResult: (result) {
         if (!mounted) return;
         final recognized = result.recognizedWords.trim();
         if (recognized.isEmpty) return;
-        if (result.finalResult) {
-          _textController.text = recognized;
-          _sendTextTurn();
-          _stopVoiceInput();
-        } else {
-          setState(() => _textController.text = recognized);
-        }
+        // Atualiza o texto em tempo real
+        setState(() => _textController.text = recognized);
+        // NÃO envia automaticamente - usuário controla
       },
     );
+  }
+
+  Future<void> _restartListening() async {
+    if (!_voiceListening || !mounted) return;
+    // Pequeno delay antes de reiniciar
+    await Future.delayed(const Duration(milliseconds: 100));
+    if (_voiceListening && mounted) {
+      await _startListening();
+    }
+  }
+
+  Future<void> _stopVoiceInputAndSend() async {
+    if (!_voiceListening) return;
+    await _speech.stop();
+    if (mounted) {
+      setState(() => _voiceListening = false);
+    }
+    // Envia o texto acumulado se houver
+    final text = _textController.text.trim();
+    if (text.isNotEmpty) {
+      await _sendTextTurn();
+    }
   }
 
   Future<void> _stopVoiceInput() async {
@@ -783,6 +907,22 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
     } else {
       await WardReminderController.stop();
     }
+  }
+
+  Future<void> _initTts() async {
+    final isMale = _voice == 'Masculina';
+    await TtsController.init(
+      volume: _coachVolume,
+      speechRate: _speechRate,
+      language: _language,
+      isMale: isMale,
+    );
+  }
+
+  Future<void> _speakResponse(String text) async {
+    if (_coachPaused || _coachVolume == 0) return;
+    await TtsController.stop(); // Para fala anterior antes de iniciar nova
+    await TtsController.speak(text);
   }
 
   Future<void> _updateOverlayPermission() async {
@@ -843,7 +983,11 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
   Future<bool> _startOverlayService({bool minimizeApp = false}) async {
     if (_overlayActive) return true;
     try {
-      final started = await OverlayController.start();
+      final started = await OverlayController.start(
+        sessionId: _sessionId,
+        apiBaseUrl: _apiBaseUrl,
+        locale: _language,
+      );
       if (!started) {
         _showError(_strings.overlayStartError);
         return false;
@@ -852,7 +996,7 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
         setState(() => _overlayActive = true);
       }
       if (minimizeApp) {
-        SystemNavigator.pop();
+        await OverlayController.minimizeApp();
       }
       return true;
     } catch (_) {
@@ -965,6 +1109,275 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
       SnackBar(
         content: Text(message),
         backgroundColor: AppColors.surface,
+      ),
+    );
+  }
+
+  void _showTutorial() {
+    final strings = _strings;
+
+    // Mostra o demo do overlay para o tutorial
+    setState(() => _showOverlayDemo = true);
+
+    // Aguarda o widget ser renderizado
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _tutorialCoachMark = TutorialCoachMark(
+        targets: _createTutorialTargets(strings),
+        colorShadow: AppColors.background,
+        opacityShadow: 0.9,
+        textSkip: strings.tutorialSkip,
+        textStyleSkip: const TextStyle(
+          color: AppColors.textMuted,
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+        ),
+        paddingFocus: 10,
+        focusAnimationDuration: const Duration(milliseconds: 400),
+        pulseAnimationDuration: const Duration(milliseconds: 1000),
+        onFinish: () => _onTutorialComplete(),
+        onSkip: () {
+          _onTutorialComplete();
+          return true;
+        },
+      )..show(context: context);
+    });
+  }
+
+  List<TargetFocus> _createTutorialTargets(AppStrings strings) {
+    return [
+      // 1. Botão Iniciar Partida
+      TargetFocus(
+        identify: 'start_button',
+        keyTarget: _keyStartButton,
+        alignSkip: Alignment.bottomRight,
+        shape: ShapeLightFocus.RRect,
+        radius: 16,
+        contents: [
+          TargetContent(
+            align: ContentAlign.bottom,
+            builder: (context, controller) => _TutorialContent(
+              title: strings.tutorialStartTitle,
+              description: strings.tutorialStartDesc,
+              buttonText: strings.tutorialNext,
+              onPressed: () => controller.next(),
+            ),
+          ),
+        ],
+      ),
+      // 2. Botão de Configurações
+      TargetFocus(
+        identify: 'settings_button',
+        keyTarget: _keySettingsButton,
+        alignSkip: Alignment.bottomRight,
+        shape: ShapeLightFocus.Circle,
+        contents: [
+          TargetContent(
+            align: ContentAlign.bottom,
+            builder: (context, controller) => _TutorialContent(
+              title: strings.tutorialSettingsTitle,
+              description: strings.tutorialSettingsDesc,
+              buttonText: strings.tutorialNext,
+              onPressed: () => controller.next(),
+            ),
+          ),
+        ],
+      ),
+      // 3. Demo do Overlay/Botão Flutuante
+      TargetFocus(
+        identify: 'overlay_demo',
+        keyTarget: _keyOverlayDemo,
+        alignSkip: Alignment.bottomRight,
+        shape: ShapeLightFocus.Circle,
+        radius: 80,
+        contents: [
+          TargetContent(
+            align: ContentAlign.bottom,
+            builder: (context, controller) => _TutorialContent(
+              title: strings.tutorialOverlayTitle,
+              description: strings.tutorialOverlayDesc,
+              buttonText: strings.tutorialFinish,
+              onPressed: () => controller.next(),
+            ),
+          ),
+        ],
+      ),
+    ];
+  }
+
+  Future<void> _onTutorialComplete() async {
+    setState(() => _showOverlayDemo = false);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyTutorialSeen, true);
+  }
+}
+
+/// Widget de demonstração do overlay para o tutorial
+class _OverlayDemo extends StatelessWidget {
+  const _OverlayDemo({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 136,
+      height: 136,
+      child: Stack(
+        children: [
+          // Botões do menu ao redor
+          Positioned(
+            top: 8,
+            left: 0,
+            right: 0,
+            child: Center(child: _MenuButton(label: '✕', enabled: false)),
+          ),
+          Positioned(
+            right: 8,
+            top: 0,
+            bottom: 0,
+            child: Center(child: _MenuButton(label: '⚙', enabled: false)),
+          ),
+          Positioned(
+            bottom: 8,
+            left: 0,
+            right: 0,
+            child: Center(child: _MenuButton(label: 'M', enabled: true)),
+          ),
+          Positioned(
+            left: 8,
+            top: 0,
+            bottom: 0,
+            child: Center(child: _MenuButton(label: 'W', enabled: false)),
+          ),
+          // Bolha central
+          Center(
+            child: Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF2EFFD4), Color(0xFF0D1419)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                border: Border.all(color: const Color(0xFF1E1E24), width: 2),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF2EFFD4).withValues(alpha: 0.3),
+                    blurRadius: 20,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: const Center(
+                child: Text(
+                  'N',
+                  style: TextStyle(
+                    color: Color(0xFF05070A),
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MenuButton extends StatelessWidget {
+  const _MenuButton({required this.label, required this.enabled});
+
+  final String label;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 32,
+      height: 32,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: enabled ? const Color(0xFF1A3D2E) : const Color(0xFF1B1F25),
+        border: Border.all(
+          color: enabled ? const Color(0xFF2EFFD4) : const Color(0x33FFFFFF),
+          width: 2,
+        ),
+      ),
+      child: Center(
+        child: Text(
+          label,
+          style: TextStyle(
+            color: enabled ? const Color(0xFF2EFFD4) : const Color(0xFF6B7280),
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Conteúdo padronizado do tutorial
+class _TutorialContent extends StatelessWidget {
+  const _TutorialContent({
+    required this.title,
+    required this.description,
+    required this.buttonText,
+    required this.onPressed,
+  });
+
+  final String title;
+  final String description;
+  final String buttonText;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: AppColors.accent,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            description,
+            style: const TextStyle(
+              fontSize: 14,
+              color: AppColors.textPrimary,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Align(
+            alignment: Alignment.centerRight,
+            child: ElevatedButton(
+              onPressed: onPressed,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.accent,
+                foregroundColor: AppColors.background,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: Text(
+                buttonText,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
