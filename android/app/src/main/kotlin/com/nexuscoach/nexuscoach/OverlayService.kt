@@ -38,6 +38,7 @@ import org.json.JSONObject
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 import android.content.Context
 import android.content.SharedPreferences
@@ -77,6 +78,7 @@ class OverlayService : Service() {
     private lateinit var prefs: SharedPreferences
     private var removeParams: WindowManager.LayoutParams? = null
     private var bubbleSizePx = 0
+    private var bubbleOffsetPx = 0
     private var menuButtonPx = 0
     private var menuGapPx = 0
     private var overlaySizePx = 0
@@ -200,6 +202,7 @@ class OverlayService : Service() {
         val menuSpan = (menuItemCount - 1) * menuSpacing + menuButtonPx
         val baseSize = bubbleSizePx + 2 * (menuButtonPx + menuGapPx)
         overlaySizePx = max(baseSize, menuSpan + 2 * menuGapPx)
+        bubbleOffsetPx = (overlaySizePx - bubbleSizePx) / 2
         removeSizePx = dpToPx(72)
         removeOffsetPx = dpToPx(96)
         removeMagnetDistance = removeSizePx / 2 + dpToPx(40)
@@ -242,11 +245,18 @@ class OverlayService : Service() {
         attachDragHandler(bubble, overlay, params)
 
         val notification = buildNotification()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(
                 NOTIFICATION_ID,
                 notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            )
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
             )
         } else {
             startForeground(NOTIFICATION_ID, notification)
@@ -405,7 +415,7 @@ class OverlayService : Service() {
     }
 
     private fun syncMinimapService() {
-        val intervalSeconds = prefs.getLong("flutter.minimap_interval", 45L).toInt()
+        val intervalSeconds = readMinimapIntervalSeconds()
         val language = prefs.getString("flutter.language", "pt-BR") ?: "pt-BR"
         val message = if (language.startsWith("en")) "Check the minimap" else "Olhe o minimapa"
 
@@ -423,6 +433,20 @@ class OverlayService : Service() {
             }
             startService(intent)
         }
+    }
+
+    private fun readMinimapIntervalSeconds(): Int {
+        val raw = prefs.all["flutter.minimap_interval"]
+        val fallback = 45
+        return when (raw) {
+            is Long -> raw.toInt()
+            is Int -> raw
+            is Float -> raw.roundToInt()
+            is Double -> raw.roundToInt()
+            is String -> raw.toDoubleOrNull()?.roundToInt() ?: fallback
+            is Number -> raw.toInt()
+            else -> fallback
+        }.coerceAtLeast(10)
     }
 
     private fun syncWardService() {
@@ -506,7 +530,7 @@ class OverlayService : Service() {
     private fun shouldOpenLeft(): Boolean {
         val params = overlayParams ?: return false
         val metrics = Resources.getSystem().displayMetrics
-        val centerX = params.x + overlaySizePx / 2
+        val centerX = bubbleCenterX(params)
         return centerX > metrics.widthPixels / 2
     }
 
@@ -680,7 +704,6 @@ class OverlayService : Service() {
         var lastTouchX = 0f
         var lastTouchY = 0f
         var lastTouchNearRemove = false
-        var menuWasVisibleOnDown = false
         var isDragging = false
         val touchSlop = ViewConfiguration.get(bubble.context).scaledTouchSlop
 
@@ -688,7 +711,6 @@ class OverlayService : Service() {
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     // Guarda o estado do menu ANTES de qualquer modificação
-                    menuWasVisibleOnDown = menuVisible
                     isDragging = false
                     snapAnimator?.cancel()
                     bubble.animate().scaleX(0.92f).scaleY(0.92f).setDuration(80).start()
@@ -716,8 +738,8 @@ class OverlayService : Service() {
                     params.x = initialX + dx
                     params.y = initialY + dy
                     clampToScreen(params)
-                    val centerX = params.x + overlaySizePx / 2
-                    val centerY = params.y + overlaySizePx / 2
+                    val centerX = bubbleCenterX(params)
+                    val centerY = bubbleCenterY(params)
                     val near = isTouchNearRemoveZone(centerX, centerY)
                     lastTouchNearRemove = near
                     if (near) applyMagnet(params)
@@ -743,11 +765,7 @@ class OverlayService : Service() {
 
                     if (isClick) {
                         // Foi um clique: toggle baseado no estado que o menu tinha quando o toque começou
-                        if (menuWasVisibleOnDown) {
-                            hideMenu()
-                        } else {
-                            showMenu()
-                        }
+                        toggleMenu()
                     } else {
                         // Foi arrasto: snap para a borda (menu já foi escondido no ACTION_MOVE)
                         snapToEdge(params)
@@ -769,14 +787,22 @@ class OverlayService : Service() {
 
     private fun clampToScreen(params: WindowManager.LayoutParams) {
         val metrics = Resources.getSystem().displayMetrics
-        params.x = max(0, min(params.x, metrics.widthPixels - overlaySizePx))
-        params.y = max(0, min(params.y, metrics.heightPixels - overlaySizePx))
+        val minX = -bubbleOffsetPx
+        val maxX = metrics.widthPixels - overlaySizePx + bubbleOffsetPx
+        val minY = -bubbleOffsetPx
+        val maxY = metrics.heightPixels - overlaySizePx + bubbleOffsetPx
+        params.x = max(minX, min(params.x, maxX))
+        params.y = max(minY, min(params.y, maxY))
     }
 
     private fun snapToEdge(params: WindowManager.LayoutParams) {
         val metrics = Resources.getSystem().displayMetrics
-        val centerX = params.x + overlaySizePx / 2
-        val targetX = if (centerX < metrics.widthPixels / 2) 0 else metrics.widthPixels - overlaySizePx
+        val centerX = bubbleCenterX(params)
+        val targetX = if (centerX < metrics.widthPixels / 2) {
+            -bubbleOffsetPx
+        } else {
+            metrics.widthPixels - overlaySizePx + bubbleOffsetPx
+        }
         val startX = params.x
         if (startX == targetX) return
         snapAnimator?.cancel()
@@ -904,8 +930,8 @@ class OverlayService : Service() {
     }
 
     private fun isInRemoveZone(params: WindowManager.LayoutParams): Boolean {
-        val centerX = params.x + overlaySizePx / 2
-        val centerY = params.y + overlaySizePx / 2
+        val centerX = bubbleCenterX(params)
+        val centerY = bubbleCenterY(params)
         val dx = centerX - removeTargetX
         val dy = centerY - removeTargetY
         val radius = removeSizePx / 2
@@ -919,10 +945,18 @@ class OverlayService : Service() {
     }
 
     private fun applyMagnet(params: WindowManager.LayoutParams) {
-        val targetX = removeTargetX - overlaySizePx / 2
-        val targetY = removeTargetY - overlaySizePx / 2
+        val targetX = removeTargetX - bubbleOffsetPx - bubbleSizePx / 2
+        val targetY = removeTargetY - bubbleOffsetPx - bubbleSizePx / 2
         params.x += ((targetX - params.x) * 0.3f).toInt()
         params.y += ((targetY - params.y) * 0.3f).toInt()
+    }
+
+    private fun bubbleCenterX(params: WindowManager.LayoutParams): Int {
+        return params.x + bubbleOffsetPx + bubbleSizePx / 2
+    }
+
+    private fun bubbleCenterY(params: WindowManager.LayoutParams): Int {
+        return params.y + bubbleOffsetPx + bubbleSizePx / 2
     }
 
     private fun buildNotification(): Notification {

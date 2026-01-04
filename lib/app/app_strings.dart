@@ -75,6 +75,7 @@ class AppStrings {
     required this.laneSupport,
     required this.feedbackTitle,
     required this.feedbackDescription,
+    required this.feedbackCommentHint,
     required this.feedbackGood,
     required this.feedbackBad,
     required this.feedbackThanks,
@@ -164,6 +165,7 @@ class AppStrings {
   final String laneSupport;
   final String feedbackTitle;
   final String feedbackDescription;
+  final String feedbackCommentHint;
   final String feedbackGood;
   final String feedbackBad;
   final String feedbackThanks;
@@ -277,6 +279,7 @@ class AppStrings {
     laneSupport: 'Suporte',
     feedbackTitle: 'Feedback rápido',
     feedbackDescription: 'Como foi a ajuda do coach nesta partida?',
+    feedbackCommentHint: 'Opcional: conte mais detalhes',
     feedbackGood: 'Foi útil',
     feedbackBad: 'Não ajudou',
     feedbackThanks: 'Obrigado! Registramos o feedback.',
@@ -374,6 +377,7 @@ class AppStrings {
     laneSupport: 'Support',
     feedbackTitle: 'Quick feedback',
     feedbackDescription: 'How was the coach in this match?',
+    feedbackCommentHint: 'Optional: share more details',
     feedbackGood: 'It helped',
     feedbackBad: 'Not useful',
     feedbackThanks: 'Thanks! We logged your response.',
