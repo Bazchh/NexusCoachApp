@@ -671,7 +671,9 @@ class OverlayService : Service() {
     private fun sendTurn(text: String) {
         val session = sessionId
         val baseUrl = apiBaseUrl
+        Log.d("OverlayService", "sendTurn: session=$session, baseUrl=$baseUrl, text=$text")
         if (session.isNullOrBlank() || baseUrl.isNullOrBlank()) {
+            Log.w("OverlayService", "sendTurn aborted: missing session or baseUrl")
             return
         }
         Thread {
@@ -685,21 +687,29 @@ class OverlayService : Service() {
                 val payload = JSONObject()
                 payload.put("session_id", session)
                 payload.put("text", text)
+                Log.d("OverlayService", "sendTurn request: $payload")
                 conn.outputStream.use { stream ->
                     stream.write(payload.toString().toByteArray(Charsets.UTF_8))
                 }
 
-                if (conn.responseCode in 200..299) {
+                val responseCode = conn.responseCode
+                Log.d("OverlayService", "sendTurn response code: $responseCode")
+                if (responseCode in 200..299) {
                     val responseText = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+                    Log.d("OverlayService", "sendTurn response: $responseText")
                     val json = JSONObject(responseText)
                     val data = json.optJSONObject("data")
                     val reply = data?.optString("reply_text") ?: ""
                     if (reply.isNotBlank()) {
                         speak(reply)
                     }
+                } else {
+                    val errorText = BufferedReader(InputStreamReader(conn.errorStream)).use { it.readText() }
+                    Log.e("OverlayService", "sendTurn error: $responseCode - $errorText")
                 }
                 conn.disconnect()
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                Log.e("OverlayService", "sendTurn exception", e)
             }
         }.start()
     }

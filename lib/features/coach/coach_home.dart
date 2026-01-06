@@ -105,6 +105,7 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _endSessionFireAndForget();
     _textController.dispose();
     _speech.stop();
     TtsController.dispose();
@@ -118,6 +119,8 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
       _handleAppResumed();
     } else if (state == AppLifecycleState.paused) {
       _handleAppPaused();
+    } else if (state == AppLifecycleState.detached) {
+      _endSessionFireAndForget();
     }
   }
 

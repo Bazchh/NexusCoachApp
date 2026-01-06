@@ -175,16 +175,21 @@ extension _CoachHomeStateSession on _CoachHomeState {
     }
   }
 
-  Future<void> _endSession() async {
+  Future<void> _endSession({bool silent = false}) async {
     final strings = _strings;
     final sessionId = _sessionId;
     if (sessionId == null) return;
 
-    // Primeiro coleta o feedback do usuário
-    await TtsController.stop();
-    final feedbackPayload = await _promptFeedback();
-    final feedbackRating = feedbackPayload?.rating;
-    final feedbackComment = feedbackPayload?.comment;
+    String? feedbackRating;
+    String? feedbackComment;
+
+    // Coleta feedback apenas se não for encerramento silencioso
+    if (!silent) {
+      await TtsController.stop();
+      final feedbackPayload = await _promptFeedback();
+      feedbackRating = feedbackPayload?.rating;
+      feedbackComment = feedbackPayload?.comment;
+    }
 
     setState(() => _busy = true);
     await _stopVoiceInput();
@@ -213,6 +218,17 @@ extension _CoachHomeStateSession on _CoachHomeState {
         setState(() => _busy = false);
       }
     }
+  }
+
+  /// Encerra a sessão sem aguardar resposta (usado quando app fecha)
+  void _endSessionFireAndForget() {
+    final sessionId = _sessionId;
+    if (sessionId == null) return;
+    _api.endSessionSilent(sessionId);
+    _sessionId = null;
+    _sessionActive = false;
+    // Limpa estado persistido de forma fire-and-forget
+    _clearSessionState();
   }
 
   Future<void> _finalizeSessionAfterEnd(

@@ -99,6 +99,16 @@ class NexusApi {
     });
   }
 
+  /// Encerra a sessão sem aguardar resposta (fire-and-forget)
+  /// Usado quando o app está sendo fechado
+  void endSessionSilent(String sessionId) {
+    _client.post(
+      Uri.parse('$baseUrl/session/end'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'session_id': sessionId}),
+    ).ignore();
+  }
+
   Future<Map<String, dynamic>> _postJson(
     String path,
     Map<String, dynamic> body,
