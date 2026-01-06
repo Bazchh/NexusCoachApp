@@ -16,9 +16,7 @@ import '../../services/ward_reminder_controller.dart';
 import '../settings/language_voice_screen.dart';
 import '../settings/privacy_screen.dart';
 import 'widgets/end_button.dart';
-import 'widgets/history_card.dart';
 import 'widgets/primary_action.dart';
-import 'widgets/quick_input.dart';
 import 'widgets/slider_tile.dart';
 import 'widgets/top_row.dart';
 
@@ -69,7 +67,7 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
   double _micSensitivity = 0.7;
   double _coachVolume = 0.8;
   double _speechRate = 0.5;
-  String _language = 'pt-BR';
+  String _language = 'en-US';
   String _voice = 'Feminina';
   bool _minimapReminder = false;
   double _minimapInterval = 45;
@@ -101,6 +99,7 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _loadSettings();
+    _requestMicPermission();
   }
 
   @override
@@ -166,8 +165,8 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
                 // Widget de demonstração do overlay para o tutorial
                 if (_showOverlayDemo)
                   Positioned(
-                    left: 24,
-                    top: 180,
+                    right: 24,
+                    top: 104,
                     child: _OverlayDemo(key: _keyOverlayDemo),
                   ),
                 Align(
@@ -186,29 +185,7 @@ class _CoachHomeState extends State<CoachHome> with WidgetsBindingObserver {
                             : () => _openStartSheet(context, strings),
                         buttonKey: _keyStartButton,
                       ),
-                      const SizedBox(height: 20),
-                      if (_sessionActive) ...[
-                        QuickInput(
-                          controller: _textController,
-                          enabled:
-                              !_sending && !_busy && !_coachPaused,
-                          micEnabled: _sessionActive &&
-                              !_sending &&
-                              !_busy &&
-                              !_coachPaused,
-                          micActive: _voiceListening,
-                          micTooltip: _voiceListening
-                              ? strings.micStopTooltip
-                              : strings.micStartTooltip,
-                          hint: strings.quickInputHint,
-                          sendTooltip: strings.sendTooltip,
-                          onSend: _sendTextTurn,
-                          onMicTap: _toggleVoiceInput,
-                        ),
-                        const SizedBox(height: 22),
-                      ],
-                      HistoryCard(history: _history, strings: strings),
-                      const SizedBox(height: 26),
+                      const SizedBox(height: 28),
                       EndButton(
                         enabled: _sessionActive && !_busy,
                         label: strings.endButton,

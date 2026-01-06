@@ -8,14 +8,14 @@ class TtsController {
   static bool _initialized = false;
   static double _volume = 1.0;
   static double _speechRate = 0.5;
-  static String _language = 'pt-BR';
+  static String _language = 'en-US';
   static bool _isMale = false;
 
   /// Inicializa o TTS com as configurações padrão
   static Future<void> init({
     double volume = 1.0,
     double speechRate = 0.5,
-    String language = 'pt-BR',
+    String language = 'en-US',
     bool isMale = false,
   }) async {
     _volume = volume;

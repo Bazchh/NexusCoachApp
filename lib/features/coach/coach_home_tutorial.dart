@@ -103,7 +103,7 @@ class _OverlayDemo extends StatelessWidget {
     const bubbleSize = 56.0;
     const menuSize = 30.0;
     const menuGap = 8.0;
-    const menuItems = 5;
+    const menuItems = 6;
     const menuColumnHeight = menuSize * menuItems + menuGap * (menuItems - 1);
 
     return SizedBox(
@@ -154,6 +154,8 @@ class _OverlayDemo extends StatelessWidget {
                 _MenuButton(label: 'X', enabled: false, size: menuSize),
                 SizedBox(height: menuGap),
                 _MenuButton(label: 'G', enabled: false, size: menuSize),
+                SizedBox(height: menuGap),
+                _MenuButton(label: 'S', enabled: false, size: menuSize),
                 SizedBox(height: menuGap),
                 _MenuButton(label: 'MIC', enabled: false, size: menuSize, textSize: 9),
                 SizedBox(height: menuGap),

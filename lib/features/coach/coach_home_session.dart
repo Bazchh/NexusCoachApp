@@ -378,7 +378,6 @@ extension _CoachHomeStateSession on _CoachHomeState {
         );
       },
     );
-    commentController.dispose();
     return choice;
   }
 }

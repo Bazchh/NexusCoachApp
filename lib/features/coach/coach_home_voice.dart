@@ -2,6 +2,13 @@
 part of 'coach_home.dart';
 
 extension _CoachHomeStateVoice on _CoachHomeState {
+  Future<void> _requestMicPermission() async {
+    await _speech.initialize(
+      onStatus: (_) {},
+      onError: (_) {},
+    );
+  }
+
   Future<void> _toggleVoiceInput() async {
     final strings = _strings;
     if (!_sessionActive) {

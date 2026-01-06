@@ -6,6 +6,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.pm.PackageManager
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.content.res.Resources
@@ -24,10 +25,13 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
+import android.view.ViewOutlineProvider
 import android.view.WindowManager
 import android.view.animation.OvershootInterpolator
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -42,6 +46,7 @@ import kotlin.math.roundToInt
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.Manifest
 import androidx.core.content.ContextCompat
 
 class OverlayService : Service() {
@@ -69,6 +74,7 @@ class OverlayService : Service() {
     private var menuView: View? = null
     private var menuCloseButton: View? = null
     private var menuAppButton: View? = null
+    private var menuStopButton: View? = null
     private var menuMinimapButton: View? = null
     private var menuWardButton: View? = null
     private var menuMicButton: TextView? = null
@@ -99,7 +105,7 @@ class OverlayService : Service() {
     private var localeTag: String = "pt-BR"
     private var tts: TextToSpeech? = null
     private var ttsReady = false
-    private val menuItemCount = 5
+    private val menuItemCount = 6
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -125,6 +131,7 @@ class OverlayService : Service() {
                         micListening = false
                         awaitingFinal = false
                         updateMicButton(false)
+                        demoteFromMicForeground()
                     }
 
                     override fun onPartialResults(partialResults: Bundle?) {
@@ -143,6 +150,7 @@ class OverlayService : Service() {
                         }
                         micListening = false
                         updateMicButton(false)
+                        demoteFromMicForeground()
                         if (awaitingFinal && lastTranscript.isNotBlank()) {
                             awaitingFinal = false
                             sendTurn(lastTranscript)
@@ -249,14 +257,7 @@ class OverlayService : Service() {
             startForeground(
                 NOTIFICATION_ID,
                 notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or
-                        ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-            )
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
             )
         } else {
             startForeground(NOTIFICATION_ID, notification)
@@ -281,13 +282,13 @@ class OverlayService : Service() {
         val bubble = FrameLayout(this)
         val bubbleBackground = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
-            gradientType = GradientDrawable.LINEAR_GRADIENT
-            orientation = GradientDrawable.Orientation.TL_BR
-            setColors(intArrayOf(0xFF2EFFD4.toInt(), 0xFF0D1419.toInt()))
+            setColor(0xFF0B0F12.toInt())
             setStroke(dpToPx(2), 0xFF1E1E24.toInt())
         }
         bubble.background = bubbleBackground
         bubble.elevation = dpToPx(12).toFloat()
+        bubble.clipToOutline = true
+        bubble.outlineProvider = ViewOutlineProvider.BACKGROUND
 
         val glow = View(this).apply {
             val glowBackground = GradientDrawable().apply {
@@ -299,12 +300,9 @@ class OverlayService : Service() {
             background = glowBackground
         }
 
-        val text = TextView(this).apply {
-            this.text = "N"
-            setTextColor(0xFF05070A.toInt())
-            textSize = 18f
-            typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
+        val logo = ImageView(this).apply {
+            setImageResource(R.drawable.ic_overlay_logo)
+            scaleType = ImageView.ScaleType.CENTER_CROP
         }
 
         bubble.addView(
@@ -315,7 +313,7 @@ class OverlayService : Service() {
             )
         )
         bubble.addView(
-            text,
+            logo,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
@@ -341,6 +339,14 @@ class OverlayService : Service() {
             textSize = 16f
         ) {
             stopSelf()
+        }
+        val stopButton = buildMenuButton(
+            label = "S",
+            backgroundColor = 0xFF101216.toInt(),
+            textColor = 0xFFEBF2F7.toInt(),
+            textSize = 14f
+        ) {
+            stopSpeaking()
         }
         val appButton = buildMenuButton(
             label = "\u2699",
@@ -373,6 +379,7 @@ class OverlayService : Service() {
             Gravity.CENTER
         )
         container.addView(closeButton, centerParams)
+        container.addView(stopButton, centerParams)
         container.addView(appButton, centerParams)
         container.addView(micButton, centerParams)
         container.addView(minimapButton, centerParams)
@@ -380,6 +387,7 @@ class OverlayService : Service() {
 
         menuMicButton = micButton as TextView
         menuCloseButton = closeButton
+        menuStopButton = stopButton
         menuAppButton = appButton
         menuMinimapButton = minimapButton
         menuWardButton = wardButton
@@ -509,6 +517,7 @@ class OverlayService : Service() {
     private fun buildMenuItems(): List<MenuItem> {
         val items = listOfNotNull(
             menuCloseButton,
+            menuStopButton,
             menuAppButton,
             menuMicButton,
             menuMinimapButton,
@@ -600,6 +609,10 @@ class OverlayService : Service() {
     }
 
     private fun toggleMic() {
+        if (!hasRecordAudioPermission()) {
+            showMicPermissionNeeded()
+            return
+        }
         if (micListening) {
             stopListening()
         } else {
@@ -609,6 +622,7 @@ class OverlayService : Service() {
 
     private fun startListening() {
         if (speechRecognizer == null) return
+        if (!promoteToMicForeground()) return
         lastTranscript = ""
         awaitingFinal = false
         micListening = true
@@ -631,6 +645,7 @@ class OverlayService : Service() {
         micListening = false
         updateMicButton(false)
         speechRecognizer?.stopListening()
+        demoteFromMicForeground()
     }
 
     private fun updateMicButton(active: Boolean) {
@@ -678,6 +693,62 @@ class OverlayService : Service() {
     private fun speak(text: String) {
         if (!ttsReady) return
         tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "overlay")
+    }
+
+    private fun stopSpeaking() {
+        tts?.stop()
+    }
+
+    private fun hasRecordAudioPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun promoteToMicForeground(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return true
+        return try {
+            val notification = buildNotification()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or
+                            ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                )
+            } else {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                )
+            }
+            true
+        } catch (_: SecurityException) {
+            showMicPermissionNeeded()
+            false
+        }
+    }
+
+    private fun demoteFromMicForeground() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            val notification = buildNotification()
+            startForeground(
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            )
+        }
+    }
+
+    private fun showMicPermissionNeeded() {
+        Toast.makeText(
+            this,
+            "Permita o microfone no app para usar o MIC.",
+            Toast.LENGTH_SHORT
+        ).show()
+        openApp()
     }
 
     private fun parseLocale(tag: String?): Locale {

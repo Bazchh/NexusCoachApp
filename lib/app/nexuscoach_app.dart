@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'app_colors.dart';
-import '../features/coach/coach_home.dart';
+import '../features/onboarding/language_gate.dart';
 
 class NexusCoachApp extends StatelessWidget {
   const NexusCoachApp({super.key});
@@ -29,7 +29,7 @@ class NexusCoachApp extends StatelessWidget {
         ),
         textTheme: textTheme,
       ),
-      home: const CoachHome(),
+      home: const LanguageGate(),
     );
   }
 }
