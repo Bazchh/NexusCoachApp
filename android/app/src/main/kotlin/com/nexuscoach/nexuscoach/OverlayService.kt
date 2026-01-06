@@ -16,6 +16,7 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.util.Log
 import android.provider.Settings
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
