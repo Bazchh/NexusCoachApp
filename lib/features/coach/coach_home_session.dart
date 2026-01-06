@@ -159,6 +159,10 @@ extension _CoachHomeStateSession on _CoachHomeState {
       await _persistSessionState();
       await _syncMinimapReminder();
       await _syncWardReminder();
+      await _updateOverlayPermission();
+      if (!_overlayPermissionGranted) {
+        await _ensureOverlayPermission();
+      }
       await _maybeStartOverlayService(minimizeApp: true);
     } on ApiException catch (error) {
       _showError(error.message);

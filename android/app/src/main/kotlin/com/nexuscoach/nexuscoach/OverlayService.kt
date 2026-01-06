@@ -128,10 +128,14 @@ class OverlayService : Service() {
                     override fun onEvent(eventType: Int, params: Bundle?) {}
 
                     override fun onError(error: Int) {
-                        micListening = false
                         awaitingFinal = false
-                        updateMicButton(false)
-                        demoteFromMicForeground()
+                        if (micListening) {
+                            updateMicButton(true)
+                            restartListening()
+                        } else {
+                            updateMicButton(false)
+                            demoteFromMicForeground()
+                        }
                     }
 
                     override fun onPartialResults(partialResults: Bundle?) {
@@ -148,12 +152,15 @@ class OverlayService : Service() {
                         if (!items.isNullOrEmpty()) {
                             lastTranscript = items.first()
                         }
-                        micListening = false
-                        updateMicButton(false)
-                        demoteFromMicForeground()
-                        if (awaitingFinal && lastTranscript.isNotBlank()) {
-                            awaitingFinal = false
+                        if (lastTranscript.isNotBlank()) {
                             sendTurn(lastTranscript)
+                        }
+                        awaitingFinal = false
+                        if (micListening) {
+                            restartListening()
+                        } else {
+                            updateMicButton(false)
+                            demoteFromMicForeground()
                         }
                     }
                 })
@@ -641,7 +648,6 @@ class OverlayService : Service() {
 
     private fun stopListening() {
         if (speechRecognizer == null) return
-        awaitingFinal = true
         micListening = false
         updateMicButton(false)
         speechRecognizer?.stopListening()
@@ -652,6 +658,14 @@ class OverlayService : Service() {
         val button = menuMicButton ?: return
         button.text = if (active) "STOP" else "MIC"
         updateToggleButtonStyle(button, active)
+    }
+
+    private fun restartListening() {
+        overlayView?.postDelayed({
+            if (micListening) {
+                startListening()
+            }
+        }, 200)
     }
 
     private fun sendTurn(text: String) {
