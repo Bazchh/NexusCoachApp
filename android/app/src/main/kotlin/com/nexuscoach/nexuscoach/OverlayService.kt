@@ -85,10 +85,10 @@ class OverlayService : Service() {
     private lateinit var prefs: SharedPreferences
     private var removeParams: WindowManager.LayoutParams? = null
     private var bubbleSizePx = 0
-    private var bubbleOffsetPx = 0
     private var menuButtonPx = 0
     private var menuGapPx = 0
-    private var overlaySizePx = 0
+    private var overlayExpandedSizePx = 0
+    private var overlayCollapsedSizePx = 0
     private var removeSizePx = 0
     private var removeOffsetPx = 0
     private var removeMagnetDistance = 0
@@ -217,8 +217,8 @@ class OverlayService : Service() {
         val menuSpacing = menuButtonPx + dpToPx(6)
         val menuSpan = (menuItemCount - 1) * menuSpacing + menuButtonPx
         val baseSize = bubbleSizePx + 2 * (menuButtonPx + menuGapPx)
-        overlaySizePx = max(baseSize, menuSpan + 2 * menuGapPx)
-        bubbleOffsetPx = (overlaySizePx - bubbleSizePx) / 2
+        overlayExpandedSizePx = max(baseSize, menuSpan + 2 * menuGapPx)
+        overlayCollapsedSizePx = bubbleSizePx
         removeSizePx = dpToPx(72)
         removeOffsetPx = dpToPx(96)
         removeMagnetDistance = removeSizePx / 2 + dpToPx(40)
@@ -244,8 +244,8 @@ class OverlayService : Service() {
         )
 
         val params = WindowManager.LayoutParams(
-            overlaySizePx,
-            overlaySizePx,
+            overlayCollapsedSizePx,
+            overlayCollapsedSizePx,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             else
@@ -555,6 +555,7 @@ class OverlayService : Service() {
         if (menuVisible) return
         menuVisible = true
         val container = menuView ?: return
+        resizeOverlay(expanded = true)
         val items = buildMenuItems()
         val step = dpToPx(12).toFloat()
 
@@ -602,7 +603,10 @@ class OverlayService : Service() {
                 .start()
         }
 
-        container.postDelayed({ container.visibility = View.GONE }, delay + 160)
+        container.postDelayed({
+            container.visibility = View.GONE
+            resizeOverlay(expanded = false)
+        }, delay + 160)
     }
 
     private fun openApp() {
@@ -834,6 +838,7 @@ class OverlayService : Service() {
                     params.x = initialX + dx
                     params.y = initialY + dy
                     clampToScreen(params)
+                    applyNoGoZones(params)
                     val centerX = bubbleCenterX(params)
                     val centerY = bubbleCenterY(params)
                     val near = isTouchNearRemoveZone(centerX, centerY)
@@ -864,6 +869,7 @@ class OverlayService : Service() {
                         toggleMenu()
                     } else {
                         // Foi arrasto: snap para a borda (menu já foi escondido no ACTION_MOVE)
+                        applyNoGoZones(params)
                         snapToEdge(params)
                     }
                     true
@@ -883,10 +889,12 @@ class OverlayService : Service() {
 
     private fun clampToScreen(params: WindowManager.LayoutParams) {
         val metrics = Resources.getSystem().displayMetrics
-        val minX = -bubbleOffsetPx
-        val maxX = metrics.widthPixels - overlaySizePx + bubbleOffsetPx
-        val minY = -bubbleOffsetPx
-        val maxY = metrics.heightPixels - overlaySizePx + bubbleOffsetPx
+        val offset = bubbleOffsetPxFor(params)
+        val overlaySize = params.width
+        val minX = -offset
+        val maxX = metrics.widthPixels - overlaySize + offset
+        val minY = -offset
+        val maxY = metrics.heightPixels - overlaySize + offset
         params.x = max(minX, min(params.x, maxX))
         params.y = max(minY, min(params.y, maxY))
     }
@@ -894,10 +902,12 @@ class OverlayService : Service() {
     private fun snapToEdge(params: WindowManager.LayoutParams) {
         val metrics = Resources.getSystem().displayMetrics
         val centerX = bubbleCenterX(params)
+        val offset = bubbleOffsetPxFor(params)
+        val overlaySize = params.width
         val targetX = if (centerX < metrics.widthPixels / 2) {
-            -bubbleOffsetPx
+            -offset
         } else {
-            metrics.widthPixels - overlaySizePx + bubbleOffsetPx
+            metrics.widthPixels - overlaySize + offset
         }
         val startX = params.x
         if (startX == targetX) return
@@ -1041,18 +1051,73 @@ class OverlayService : Service() {
     }
 
     private fun applyMagnet(params: WindowManager.LayoutParams) {
-        val targetX = removeTargetX - bubbleOffsetPx - bubbleSizePx / 2
-        val targetY = removeTargetY - bubbleOffsetPx - bubbleSizePx / 2
+        val offset = bubbleOffsetPxFor(params)
+        val targetX = removeTargetX - offset - bubbleSizePx / 2
+        val targetY = removeTargetY - offset - bubbleSizePx / 2
         params.x += ((targetX - params.x) * 0.3f).toInt()
         params.y += ((targetY - params.y) * 0.3f).toInt()
     }
 
     private fun bubbleCenterX(params: WindowManager.LayoutParams): Int {
-        return params.x + bubbleOffsetPx + bubbleSizePx / 2
+        val offset = bubbleOffsetPxFor(params)
+        return params.x + offset + bubbleSizePx / 2
     }
 
     private fun bubbleCenterY(params: WindowManager.LayoutParams): Int {
-        return params.y + bubbleOffsetPx + bubbleSizePx / 2
+        val offset = bubbleOffsetPxFor(params)
+        return params.y + offset + bubbleSizePx / 2
+    }
+
+    private fun bubbleOffsetPxFor(params: WindowManager.LayoutParams): Int {
+        val size = params.width
+        return max(0, (size - bubbleSizePx) / 2)
+    }
+
+    private fun applyNoGoZones(params: WindowManager.LayoutParams) {
+        val metrics = Resources.getSystem().displayMetrics
+        val centerX = bubbleCenterX(params)
+        val centerY = bubbleCenterY(params)
+
+        val leftZoneWidth = dpToPx(140)
+        val rightZoneWidth = dpToPx(140)
+        val topZoneHeight = dpToPx(140)
+        val bottomZoneHeight = dpToPx(200)
+
+        var newCenterX = centerX
+        var newCenterY = centerY
+
+        if (centerX < leftZoneWidth && centerY > metrics.heightPixels - bottomZoneHeight) {
+            newCenterY = metrics.heightPixels - bottomZoneHeight - bubbleSizePx / 2
+        }
+
+        if (centerX > metrics.widthPixels - rightZoneWidth && centerY < topZoneHeight) {
+            newCenterY = topZoneHeight + bubbleSizePx / 2
+        }
+
+        if (newCenterX != centerX || newCenterY != centerY) {
+            val offset = bubbleOffsetPxFor(params)
+            params.x = newCenterX - offset - bubbleSizePx / 2
+            params.y = newCenterY - offset - bubbleSizePx / 2
+            clampToScreen(params)
+        }
+    }
+
+    private fun resizeOverlay(expanded: Boolean) {
+        val overlay = overlayView ?: return
+        val params = overlayParams ?: return
+        val targetSize = if (expanded) overlayExpandedSizePx else overlayCollapsedSizePx
+        if (params.width == targetSize && params.height == targetSize) return
+
+        val centerX = bubbleCenterX(params)
+        val centerY = bubbleCenterY(params)
+
+        params.width = targetSize
+        params.height = targetSize
+        val offset = bubbleOffsetPxFor(params)
+        params.x = centerX - offset - bubbleSizePx / 2
+        params.y = centerY - offset - bubbleSizePx / 2
+        clampToScreen(params)
+        windowManager?.updateViewLayout(overlay, params)
     }
 
     private fun buildNotification(): Notification {
